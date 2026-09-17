@@ -1,0 +1,29 @@
+{
+  "name": "simbridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SIMBridge — Your SIM. Your messages. Anywhere. Reliable SMS relay with offline support, end-to-end encryption and real-time delivery.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo run dev --filter=@simbridge/api",
+    "dev:api": "turbo run dev --filter=@simbridge/api",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "postinstall": "turbo run build --filter=@simbridge/shared --filter=@simbridge/crypto",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "mongo:local": "bash scripts/dev-mongo.sh",
+    "smoke": "node apps/api/scripts/smoke-test.mjs"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.9.2"
+  }
+}
