@@ -76,3 +76,20 @@ Stage Summary:
 - Expo Go Android no longer evaluates expo-notifications at startup -> no import-time throw, routes all resolve, ErrorBoundary crash gone.
 - Behavior matrix: dev build / standalone = full notifications; Expo Go Android = notifications no-op (by platform limitation), all messaging/pairing features unaffected; iOS Expo Go = local notifications still work (library loads, push token still unavailable by design).
 - Recommendation to user unchanged: use a development build (pnpm android) for SMS relay + full notification features; Expo Go remains usable for UI/API testing.
+
+---
+Task ID: 5
+Agent: Super Z (main agent)
+Task: Fix "Failed to connect to localhost/127.0.0.1:3000" on a physical phone + remove the serverUrl input (URL is fixed/auto).
+
+Work Log:
+- Root cause: on a physical phone, localhost/127.0.0.1 is the phone itself, not the PC running the API; onboarding defaulted to 10.0.2.2 (emulator-only) and required manual URL entry.
+- Rewrote apps/mobile/src/lib/api.ts: server URL is now FIXED and auto-resolved at module load via resolveServerUrl(): (1) EXPO_PUBLIC_API_URL override (baked by Expo env inlining, for production/custom setups), (2) Constants.expoConfig.hostUri (the machine running Metro — physical phone on Wi-Fi gets http://<pc-lan-ip>:3000; localhost/127.0.0.1 on Android maps to 10.0.2.2 for emulators), (3) fallback http://localhost:3000. Removed setServerUrl/initServerUrl public setters; kept getServerUrl().
+- Removed serverUrl from the whole flow: device-store (registerDevice input, profile type, hydrate initServerUrl, refreshAll re-set), storage StoredProfile type, role.tsx registerDevice call, onboarding UI.
+- Onboarding UI: deleted the Server URL input + emulator hint Pressable; now shows "Server (auto-detected): <url>" readout, error messages include the resolved URL, and a hint explains same-Wi-Fi requirement + EXPO_PUBLIC_API_URL override. Created expo-env.d.ts (standard Expo types reference) so process.env.EXPO_PUBLIC_API_URL is typed.
+- Settings screens (sender/receiver): "Server:" line now displays getServerUrl() instead of stale profile.serverUrl.
+- Verified: grep — no leftover serverUrl references; tsc --noEmit PASS; expo export --platform android PASS.
+
+Stage Summary:
+- App now auto-connects to the backend with zero configuration: same Wi-Fi + `pnpm dev` is all that is needed; onboarding only asks for a device name.
+- User must still ensure phone + PC share the network and the API (port 3000) is reachable (firewall allow Node/50737 rule on Windows); tunnel mode users should set EXPO_PUBLIC_API_URL to a reachable URL.

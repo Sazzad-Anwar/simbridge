@@ -1,18 +1,20 @@
 /**
- * Onboarding — initial setup: server URL + device name, then generate the
- * identity key pair and continue to role selection (step 1 & 2 of the flow).
+ * Onboarding — initial setup: device name, then generate the identity key
+ * pair and continue to role selection (step 1 & 2 of the flow).
+ *
+ * The server URL is FIXED — auto-resolved from the Expo dev host (or
+ * EXPO_PUBLIC_API_URL), see src/lib/api.ts. No user input needed.
  */
 import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Redirect } from "expo-router";
 import { Button, Card, Input, Muted, Row, Screen, Title } from "@/components/ui";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
-import { api, initServerUrl } from "@/lib/api";
+import { api, getServerUrl } from "@/lib/api";
 
 export default function Onboarding() {
   const registered = useDeviceStore((s) => s.registered);
-  const [serverUrl, setServerUrl] = useState("http://10.0.2.2:3000");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,19 +25,17 @@ export default function Onboarding() {
     setBusy(true);
     setError(null);
     try {
-      initServerUrl(serverUrl.trim());
-      await api.health(); // fail fast if the server URL is wrong
-      useDeviceStore.setState({ profile: { name: name.trim() || "My device", role: "sender", serverUrl: serverUrl.trim() } });
-      // Temporarily stash the profile so /role can read the server URL + name.
+      await api.health(); // fail fast if the backend is unreachable
+      useDeviceStore.setState({ profile: { name: name.trim() || "My device", role: "sender" } });
+      // Temporarily stash the profile so /role can read the name.
       await (await import("@/lib/storage")).storage.setProfile({
         name: name.trim() || "My device",
         role: "sender",
-        serverUrl: serverUrl.trim(),
       });
       await useDeviceStore.getState().hydrate();
       useDeviceStore.setState({ registered: false }); // still not registered
     } catch (err) {
-      setError(`Could not reach the server: ${String(err)}`);
+      setError(`Could not reach the server (${getServerUrl()}): ${String(err)}`);
     } finally {
       setBusy(false);
     }
@@ -60,15 +60,8 @@ export default function Onboarding() {
           this device — the server only relays ciphertext.
         </Muted>
         <View>
-          <Muted style={{ marginBottom: 6 }}>Server URL</Muted>
-          <Input
-            value={serverUrl}
-            onChangeText={setServerUrl}
-            placeholder="http://192.168.1.20:3000"
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-          />
+          <Muted style={{ marginBottom: 6 }}>Server (auto-detected)</Muted>
+          <Muted style={{ color: colors.accentSoft, fontWeight: "600" }}>{getServerUrl()}</Muted>
         </View>
         <View>
           <Muted style={{ marginBottom: 6 }}>Device name</Muted>
@@ -76,9 +69,10 @@ export default function Onboarding() {
         </View>
         {error ? <Muted style={{ color: colors.red }}>{error}</Muted> : null}
         <Button label="Continue" onPress={() => void proceed()} busy={busy} />
-        <Pressable onPress={() => setServerUrl("http://10.0.2.2:3000")}>
-          <Muted style={{ fontSize: 11 }}>Android emulator? 10.0.2.2 maps to your host machine.</Muted>
-        </Pressable>
+        <Muted style={{ fontSize: 11 }}>
+          Phone and computer running the backend must be on the same Wi-Fi
+          network. Set EXPO_PUBLIC_API_URL to override.
+        </Muted>
       </Card>
 
       <Card>

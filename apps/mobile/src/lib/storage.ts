@@ -15,7 +15,7 @@ const SECURE_KEYS = {
 } as const;
 
 const STORE_KEYS = {
-  profile: "simbridge.profile.v1", // { name, role, serverUrl }
+  profile: "simbridge.profile.v1", // { name, role }
   outbox: "simbridge.outbox.v1", // EncryptedOutboxEntry[]
   messages: "simbridge.messages.v1", // MessageDTO[] cache (receiver inbox)
   lastSeq: "simbridge.lastSeq.v1", // Record<pairId, number>
@@ -25,7 +25,6 @@ const STORE_KEYS = {
 export interface StoredProfile {
   name: string;
   role: "sender" | "receiver";
-  serverUrl: string;
 }
 
 export interface OutboxEntry {

@@ -6,7 +6,7 @@ import type { DeviceDTO, PairDTO, SimInfo } from "@simbridge/shared";
 // Randomness polyfill MUST run before @simbridge/crypto loads (tweetnacl
 // captures its PRNG when the module is evaluated). See src/lib/random-polyfill.ts.
 import "../lib/random-polyfill";
-import { api, initServerUrl, setServerUrl, getServerUrl } from "../lib/api";
+import { api } from "../lib/api";
 import { secrets, storage } from "../lib/storage";
 import { generateKeyPair } from "@simbridge/crypto";
 
@@ -15,7 +15,7 @@ export type ConnectionStatus = "connecting" | "online" | "offline" | "none";
 interface DeviceState {
   hydrated: boolean;
   registered: boolean;
-  profile: { name: string; role: "sender" | "receiver"; serverUrl: string } | null;
+  profile: { name: string; role: "sender" | "receiver" } | null;
   device: DeviceDTO | null;
   pairs: PairDTO[];
   sims: SimInfo[];
@@ -25,7 +25,6 @@ interface DeviceState {
   registerDevice: (input: {
     name: string;
     role: "sender" | "receiver";
-    serverUrl: string;
   }) => Promise<void>;
   refreshAll: () => Promise<void>;
   refreshPairs: () => Promise<void>;
@@ -46,7 +45,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   async hydrate() {
     const profile = await storage.getProfile();
     if (profile) {
-      initServerUrl(profile.serverUrl);
       const [deviceId, token] = await Promise.all([secrets.get("deviceId"), secrets.get("token")]);
       const registered = !!(deviceId && token);
       set({ profile, registered, hydrated: true, connection: registered ? "connecting" : "none" });
@@ -55,8 +53,8 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     }
   },
 
-  async registerDevice({ name, role, serverUrl }) {
-    setServerUrl(serverUrl);
+  async registerDevice({ name, role }) {
+    // Server URL is fixed and auto-resolved (see src/lib/api.ts) — no user input.
 
     // Fresh identity key pair generated ON DEVICE (never leaves the phone).
     let publicKey = await secrets.get("publicKey");
@@ -86,7 +84,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
 
     await secrets.set("token", token!);
 
-    const newProfile = { name, role, serverUrl };
+    const newProfile = { name, role };
     await storage.setProfile(newProfile);
     set({ profile: newProfile, registered: true });
     await get().refreshAll();
@@ -95,7 +93,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   async refreshAll() {
     try {
       const device = await api.me();
-      setServerUrl(get().profile?.serverUrl || getServerUrl());
       set({ device, sims: device.sims ?? [] });
       await get().refreshPairs();
     } catch {

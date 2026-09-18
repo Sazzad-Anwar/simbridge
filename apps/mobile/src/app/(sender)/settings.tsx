@@ -8,6 +8,7 @@ import { Badge, Button, Card, Muted, Row, Screen, Title } from "@/components/ui"
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
 import { smsBridge, smsBridgeAvailable } from "@/native/sms-bridge";
+import { getServerUrl } from "@/lib/api";
 import { secrets } from "@/lib/storage";
 
 export default function SenderSettings() {
@@ -33,7 +34,7 @@ export default function SenderSettings() {
           <Badge label={connection.toUpperCase()} tone={connection === "online" ? "green" : "yellow"} />
           <Badge label={`v${device?.platform ?? "android"}`} />
         </Row>
-        <Muted>Server: {profile?.serverUrl}</Muted>
+        <Muted>Server: {getServerUrl()}</Muted>
         <Muted>Device: {device?.name} ({deviceId})</Muted>
       </Card>
 

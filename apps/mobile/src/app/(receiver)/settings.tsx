@@ -6,6 +6,7 @@ import { Alert, ScrollView } from "react-native";
 import { Badge, Button, Card, Muted, Row, Screen, Title } from "@/components/ui";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
+import { getServerUrl } from "@/lib/api";
 import { secrets } from "@/lib/storage";
 // Polyfill before @simbridge/crypto (tweetnacl captures its PRNG at module load).
 import "@/lib/random-polyfill";
@@ -40,7 +41,7 @@ export default function ReceiverSettings() {
         <Row style={{ flexWrap: "wrap" }}>
           <Badge label={connection.toUpperCase()} tone={connection === "online" ? "green" : "yellow"} />
         </Row>
-        <Muted>Server: {profile?.serverUrl}</Muted>
+        <Muted>Server: {getServerUrl()}</Muted>
         <Muted>Device: {device?.name ?? "unknown"}</Muted>
       </Card>
 

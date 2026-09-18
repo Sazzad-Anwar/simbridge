@@ -2,6 +2,8 @@
  * REST client for the SIMBridge API.
  * All requests/responses use the `{ ok, data | error }` envelope.
  */
+import Constants from "expo-constants";
+import { Platform } from "react-native";
 import type { ApiResponse } from "@simbridge/shared";
 import { secrets } from "./storage";
 
@@ -14,18 +16,35 @@ export class ApiClientError extends Error {
   }
 }
 
-let serverUrl = "http://localhost:3000";
+const API_PORT = "3000";
 
-export function setServerUrl(url: string): void {
-  serverUrl = url.replace(/\/+$/, "");
+/**
+ * The backend URL is FIXED — derived automatically, never user-entered:
+ *  1. `EXPO_PUBLIC_API_URL` env override (production builds / custom setups).
+ *  2. The machine running Metro/Expo (`Constants.expoConfig.hostUri`), so on a
+ *     physical phone over Wi-Fi the API resolves to `http://<your-pc-ip>:3000`,
+ *     and on an Android emulator `localhost` maps to `10.0.2.2`.
+ *  3. Fallback: `http://localhost:3000` (web / adb-reverse setups).
+ */
+function resolveServerUrl(): string {
+  const override = process.env.EXPO_PUBLIC_API_URL;
+  if (override) return override.replace(/\/+$/, "");
+
+  const hostUri = Constants.expoConfig?.hostUri; // e.g. "192.168.1.10:8081"
+  if (hostUri) {
+    let host = hostUri.split(":")[0];
+    if ((host === "localhost" || host === "127.0.0.1") && Platform.OS === "android") {
+      host = "10.0.2.2"; // Android emulator loopback to the host machine
+    }
+    return `http://${host}:${API_PORT}`;
+  }
+  return `http://localhost:${API_PORT}`;
 }
+
+let serverUrl = resolveServerUrl();
 
 export function getServerUrl(): string {
   return serverUrl;
-}
-
-export function initServerUrl(url: string): void {
-  serverUrl = url.replace(/\/+$/, "");
 }
 
 async function request<T>(

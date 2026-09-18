@@ -28,7 +28,6 @@ export default function RoleSelect() {
       await useDeviceStore.getState().registerDevice({
         name: profile?.name ?? "My device",
         role,
-        serverUrl: profile?.serverUrl ?? "http://10.0.2.2:3000",
       });
       router.replace(role === "sender" ? "/(sender)" : "/(receiver)");
     } catch (err) {
