@@ -7,14 +7,16 @@
  */
 import React, { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { Redirect } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { Button, Card, Input, Muted, Row, Screen, Title } from "@/components/ui";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
 import { api, getServerUrl } from "@/lib/api";
+import { storage } from "@/lib/storage";
 
 export default function Onboarding() {
   const registered = useDeviceStore((s) => s.registered);
+  const router = useRouter();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,15 +27,15 @@ export default function Onboarding() {
     setBusy(true);
     setError(null);
     try {
-      await api.health(); // fail fast if the backend is unreachable
-      useDeviceStore.setState({ profile: { name: name.trim() || "My device", role: "sender" } });
+      await api.health(); // fail fast if the backend is unreachable (8s timeout)
       // Temporarily stash the profile so /role can read the name.
-      await (await import("@/lib/storage")).storage.setProfile({
-        name: name.trim() || "My device",
-        role: "sender",
-      });
+      const profile = { name: name.trim() || "My device", role: "sender" as const };
+      useDeviceStore.setState({ profile });
+      await storage.setProfile(profile);
       await useDeviceStore.getState().hydrate();
       useDeviceStore.setState({ registered: false }); // still not registered
+      // Move on to role selection — the health check passed, so proceed.
+      router.replace("/role");
     } catch (err) {
       setError(`Could not reach the server (${getServerUrl()}): ${String(err)}`);
     } finally {

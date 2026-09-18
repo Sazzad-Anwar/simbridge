@@ -93,3 +93,18 @@ Work Log:
 Stage Summary:
 - App now auto-connects to the backend with zero configuration: same Wi-Fi + `pnpm dev` is all that is needed; onboarding only asks for a device name.
 - User must still ensure phone + PC share the network and the API (port 3000) is reachable (firewall allow Node/50737 rule on Windows); tunnel mode users should set EXPO_PUBLIC_API_URL to a reachable URL.
+
+---
+Task ID: 6
+Agent: Super Z (main agent)
+Task: Fix "not doing anything after pressing the button continue.." (onboarding Continue button dead after successful server check).
+
+Work Log:
+- Root cause: onboarding.tsx proceed() ran api.health(), stashed the profile, re-hydrated, then explicitly set registered:false — but the ONLY navigation in the screen was `if (registered) return <Redirect href="/role" />`, which never fires. With Task 5's LAN-IP fix working, the health check now passes silently, so the button flashed its spinner and nothing happened (no error, no navigation).
+- Fix in apps/mobile/src/app/onboarding.tsx: added useRouter; after a successful health check the flow now calls router.replace("/role") to move to role selection (replace keeps the back stack clean: onboarding is swapped for role). Replaced the dynamic `await import("@/lib/storage")` with a static `storage` import; profile object built once and reused for store + persistence.
+- Secondary UX hardening in apps/mobile/src/lib/api.ts: request() now supports an optional timeoutMs using AbortController; on abort it throws ApiClientError("TIMEOUT", "no response within Ns — is the device on the same Wi-Fi and is port 3000 allowed through the firewall?") instead of hanging for the OS TCP timeout (which made the button look frozen). api.health() uses timeoutMs: 8000 so the onboarding check always gives visible feedback (success -> role screen; failure -> red error) within 8s.
+- Verified: tsc --noEmit PASS (apps/mobile); expo export --platform android PASS (new hbc bundle); API /health 200 with mongo connected.
+
+Stage Summary:
+- Onboarding flow now works end-to-end in Expo Go: enter name -> Continue -> health check (8s cap) -> role selection -> Sender/Receiver -> registration -> role tabs.
+- No API/schema changes; auth-free /health call only. No leftover dynamic storage import.

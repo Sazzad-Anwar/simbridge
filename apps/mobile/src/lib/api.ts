@@ -49,21 +49,39 @@ export function getServerUrl(): string {
 
 async function request<T>(
   path: string,
-  init: { method?: string; body?: unknown; auth?: boolean } = {},
+  init: { method?: string; body?: unknown; auth?: boolean; timeoutMs?: number } = {},
 ): Promise<T> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (init.auth !== false) {
     const token = await secrets.get("token");
     if (token) headers.authorization = `Bearer ${token}`;
   }
-  const res = await fetch(`${serverUrl}${path}`, {
-    method: init.method ?? "GET",
-    headers,
-    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-  });
-  const json = (await res.json()) as ApiResponse<T>;
-  if (!json.ok) throw new ApiClientError(json.error.code, json.error.message);
-  return json.data;
+  const controller = new AbortController();
+  const timer =
+    init.timeoutMs != null ? setTimeout(() => controller.abort(), init.timeoutMs) : undefined;
+  try {
+    const res = await fetch(`${serverUrl}${path}`, {
+      method: init.method ?? "GET",
+      headers,
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      signal: controller.signal,
+    });
+    const json = (await res.json()) as ApiResponse<T>;
+    if (!json.ok) throw new ApiClientError(json.error.code, json.error.message);
+    return json.data;
+  } catch (err) {
+    // An aborted signal means the timeout fired — surface a clear, actionable
+    // error instead of the raw "Aborted"/network exception.
+    if (controller.signal.aborted) {
+      throw new ApiClientError(
+        "TIMEOUT",
+        `no response within ${(init.timeoutMs ?? 0) / 1000}s — is the device on the same Wi-Fi and is port ${API_PORT} allowed through the firewall?`,
+      );
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export const api = {
@@ -115,5 +133,8 @@ export const api = {
 
   // meta
   health: () =>
-    request<{ status: string; mongo: string; version: string }>("/health", { auth: false }),
+    request<{ status: string; mongo: string; version: string }>("/health", {
+      auth: false,
+      timeoutMs: 8_000, // fast feedback on the onboarding "Continue" check
+    }),
 };
