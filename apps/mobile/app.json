@@ -27,7 +27,8 @@
         "android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.WAKE_LOCK",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.CAMERA"
       ]
     },
     "plugins": [
@@ -44,6 +45,13 @@
         "expo-notifications",
         {
           "color": "#7C5CFF"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow SIMBridge to scan pairing QR codes.",
+          "recordAudioAndroid": false
         }
       ],
       "expo-secure-store"

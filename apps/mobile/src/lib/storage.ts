@@ -15,6 +15,7 @@ const SECURE_KEYS = {
 } as const;
 
 const STORE_KEYS = {
+  serverUrl: "simbridge.serverUrl.v1",
   profile: "simbridge.profile.v1", // { name, role }
   outbox: "simbridge.outbox.v1", // EncryptedOutboxEntry[]
   messages: "simbridge.messages.v1", // MessageDTO[] cache (receiver inbox)
@@ -79,6 +80,8 @@ async function setJSON(key: string, value: unknown): Promise<void> {
 }
 
 export const storage = {
+  getServerUrl: () => AsyncStorage.getItem(STORE_KEYS.serverUrl),
+  setServerUrl: (url: string) => AsyncStorage.setItem(STORE_KEYS.serverUrl, url),
   getProfile: () => getJSON<StoredProfile | null>(STORE_KEYS.profile, null),
   setProfile: (p: StoredProfile) => setJSON(STORE_KEYS.profile, p),
 

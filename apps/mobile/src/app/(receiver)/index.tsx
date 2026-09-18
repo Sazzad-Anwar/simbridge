@@ -55,7 +55,12 @@ export default function Inbox() {
             <Input value={query} onChangeText={setQuery} placeholder="Search messages…" />
             <Row>
               {FILTERS.map((f) => (
-                <Pressable key={f} onPress={() => setFilter(f)}>
+                <Pressable
+                  key={f}
+                  onPress={() => setFilter(f)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: filter === f }}
+                >
                   <Muted
                     style={{
                       color: filter === f ? colors.accentSoft : colors.textFaint,
@@ -71,7 +76,11 @@ export default function Inbox() {
           </Card>
         }
         renderItem={({ item }) => (
-          <Pressable onPress={() => router.push(`/(receiver)/message/${item.messageId}`)}>
+          <Pressable
+            onPress={() => router.push(`/(receiver)/message/${item.messageId}`)}
+            accessibilityRole="button"
+            accessibilityLabel={`${item.sim?.displayName ?? item.senderDeviceId.slice(0, 14)}, ${item.status}`}
+          >
             <Card>
               <Row style={{ justifyContent: "space-between" }}>
                 <Title style={{ fontSize: 14 }}>

@@ -2,11 +2,12 @@
  * Sender — SIM & Routing (multi-SIM): list SIM subscriptions from the native
  * SubscriptionManager, push them to the backend registry, pick a default SIM.
  */
-import React, { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, View } from "react-native";
-import { Button, Card, Empty, Muted, Row, Screen, Title } from "@/components/ui";
+import React, { useEffect, useState, type ReactNode } from "react";
+import { Alert, Pressable, ScrollView, View } from "react-native";
+import { Button, Card, Empty, Muted, Row, Title } from "@/components/ui";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
+import { useMessageStore } from "@/stores/message-store";
 import { storage } from "@/lib/storage";
 import { smsBridge, smsBridgeAvailable } from "@/native/sms-bridge";
 import type { SimInfo } from "@simbridge/shared";
@@ -18,28 +19,50 @@ export default function SimsScreen() {
   const [defaultSim, setDefaultSim] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    await refreshSims();
-    const r = await storage.getRouting();
-    setRouting(r);
-    setDefaultSim(r["__default"] ?? null);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      await refreshSims();
+      const r = await storage.getRouting();
+      if (!active) return;
+      setRouting(r);
+      setDefaultSim(r["__default"] ?? null);
+    })();
+    return () => {
+      active = false;
+    };
   }, [refreshSims]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const pickDefault = (sim: SimInfo) => {
-    const next = defaultSim === sim.subscriptionId ? null : sim.subscriptionId;
-    setDefaultSim(next);
-    void storage.setRouting({ ...routing, __default: next ?? -1 });
+    const isDefault = defaultSim === sim.subscriptionId;
+    const label = sim.displayName || sim.carrierName;
+    Alert.alert(
+      isDefault ? "Remove default SIM" : `Set ${label} as default`,
+      isDefault
+        ? "Incoming SMS will be attributed per-sim only. Remove default?"
+        : "Incoming SMS will be attributed to this SIM by default. Continue?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: isDefault ? "Remove" : "Set default",
+          style: isDefault ? "destructive" : "default",
+          onPress: () => {
+            const next = isDefault ? null : sim.subscriptionId;
+            setDefaultSim(next);
+            void storage.setRouting({ ...routing, __default: next ?? -1 });
+          },
+        },
+      ],
+    );
   };
 
   const resync = async () => {
     setBusy(true);
     try {
+      await smsBridge.requestSmsPermissions();
       const nativeSims = await smsBridge.listSims();
       await refreshSims(nativeSims);
+      await useMessageStore.getState().drainNativeOutbox();
     } finally {
       setBusy(false);
     }
@@ -63,7 +86,13 @@ export default function SimsScreen() {
         <Empty icon="💳" text="No SIMs registered yet. Resync or grant phone-state permissions in a dev build." />
       ) : (
         sims.map((sim) => (
-          <Pressable key={sim.subscriptionId} onPress={() => pickDefault(sim)}>
+          <Pressable
+            key={sim.subscriptionId}
+            onPress={() => pickDefault(sim)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: defaultSim === sim.subscriptionId }}
+            accessibilityLabel={`${sim.displayName || sim.carrierName}${defaultSim === sim.subscriptionId ? ", default SIM" : ""}`}
+          >
             <Card
               style={{
                 borderColor: defaultSim === sim.subscriptionId ? colors.accent : colors.border,

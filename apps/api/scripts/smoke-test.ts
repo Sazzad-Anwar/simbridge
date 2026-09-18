@@ -13,13 +13,44 @@
  * Usage: pnpm --filter @simbridge/api smoke   (API must be running)
  */
 import { io, Socket } from "socket.io-client";
-import type { SocketEvents as SE } from "@simbridge/shared";
 import { SocketEvents, type ClientToServerEvents, type ServerToClientEvents } from "@simbridge/shared";
 import { generateKeyPair, encrypt, decrypt } from "@simbridge/crypto";
+import { connectMongo, disconnectMongo } from "../src/db/mongo.js";
+import { Device } from "../src/db/models/device.js";
+import { Pair } from "../src/db/models/pair.js";
+import { Message } from "../src/db/models/message.js";
+import { SimSubscription } from "../src/db/models/sim.js";
+import { AuditLog } from "../src/db/models/audit.js";
 
 const BASE = process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:3000";
+const TEST_NAMES = ["+8801700000001", "+8801700000002"];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function cleanupTestData(): Promise<void> {
+  // Make every run idempotent: drop the fixed test devices from previous runs.
+  await connectMongo();
+  const devices = await Device.find({ name: { $in: TEST_NAMES } })
+    .select("deviceId")
+    .lean<{ deviceId: string }[]>();
+  const deviceIds = devices.map((d) => d.deviceId);
+  const pairs = await Pair.find({
+    $or: [{ senderDeviceId: { $in: deviceIds } }, { receiverDeviceId: { $in: deviceIds } }],
+  }).lean<{ pairId: string }[]>();
+  const pairIds = pairs.map((p) => p.pairId);
+  await Promise.all([
+    Message.deleteMany({ pairId: { $in: pairIds } }),
+    Message.deleteMany({ senderDeviceId: { $in: deviceIds } }),
+    Message.deleteMany({ receiverDeviceId: { $in: deviceIds } }),
+    Pair.deleteMany({ senderDeviceId: { $in: deviceIds } }),
+    Pair.deleteMany({ receiverDeviceId: { $in: deviceIds } }),
+    SimSubscription.deleteMany({ deviceId: { $in: deviceIds } }),
+    AuditLog.deleteMany({ deviceId: { $in: deviceIds } }),
+    AuditLog.deleteMany({ pairId: { $in: pairIds } }),
+    Device.deleteMany({ deviceId: { $in: deviceIds } }),
+  ]);
+  console.log(`  [i] cleaned ${devices.length} leftover test device(s)`);
+}
 
 let failures = 0;
 function check(name: string, cond: boolean, extra = ""): void {
@@ -97,7 +128,8 @@ function emitAck<Res>(
 async function main() {
   console.log(`SIMBridge smoke test -> ${BASE}\n`);
 
-  // 0) Health
+  // 0) Clean leftover test data from previous runs, then health
+  await cleanupTestData();
   const health = await api<{ status: string; mongo: string }>("/health");
   check("health endpoint", health.ok === true && health.data?.status === "healthy", `mongo=${health.data?.mongo}`);
   if (!health.ok) process.exit(1);
@@ -108,11 +140,11 @@ async function main() {
 
   const senderReg = await api<{ deviceId: string; apiKey: string; accessToken: string }>("/auth/register", {
     method: "POST",
-    body: { name: "Smoke Sender", role: "sender", publicKey: senderKeys.publicKey, platform: "android" },
+    body: { name: "+8801700000001", role: "sender", publicKey: senderKeys.publicKey, platform: "android" },
   });
   const receiverReg = await api<{ deviceId: string; apiKey: string; accessToken: string }>("/auth/register", {
     method: "POST",
-    body: { name: "Smoke Receiver", role: "receiver", publicKey: receiverKeys.publicKey, platform: "android" },
+    body: { name: "+8801700000002", role: "receiver", publicKey: receiverKeys.publicKey, platform: "android" },
   });
   check("sender registered", senderReg.ok === true && !!senderReg.data?.deviceId);
   check("receiver registered", receiverReg.ok === true && !!receiverReg.data?.deviceId);
@@ -123,12 +155,43 @@ async function main() {
   const senderToken = senderReg.data!.accessToken;
   const receiverToken = receiverReg.data!.accessToken;
 
-  // Token refresh path
+  // Token refresh path — MUST run before any re-register/reclaim, because a
+  // reclaim rotates the apiKey and invalidates the original one for /auth/token.
   const refreshed = await api<{ accessToken: string }>("/auth/token", {
     method: "POST",
     body: { deviceId: senderId, apiKey: senderReg.data!.apiKey },
   });
   check("apiKey -> token exchange", refreshed.ok === true && !!refreshed.data?.accessToken);
+
+  // Re-registering an existing phone reclaims the same device (idempotent
+  // after a local wipe) — deviceId preserved, apiKey rotated, role canonical.
+  const dupReg = await api<{ deviceId: string; apiKey: string; role: string }>("/auth/register", {
+    method: "POST",
+    body: { name: "+8801700000001", role: "sender", publicKey: senderKeys.publicKey, platform: "android" },
+  });
+  check(
+    "re-register reclaims the same device (idempotent)",
+    dupReg.ok === true && dupReg.data?.deviceId === senderId && dupReg.data?.role === "sender",
+    dupReg.error?.message,
+  );
+
+  const staleKey = await api("/auth/token", {
+    method: "POST",
+    body: { deviceId: senderId, apiKey: senderReg.data!.apiKey },
+  });
+  check("reclaim rotates apiKey (old key rejected)", staleKey.ok === false, staleKey.error?.message);
+
+  const rotatedKey = await api<{ accessToken: string }>("/auth/token", {
+    method: "POST",
+    body: { deviceId: senderId, apiKey: dupReg.data!.apiKey },
+  });
+  check("rotated apiKey -> token exchange", rotatedKey.ok === true && !!rotatedKey.data?.accessToken);
+
+  const badName = await api("/auth/register", {
+    method: "POST",
+    body: { name: "not a phone", role: "sender", publicKey: senderKeys.publicKey, platform: "android" },
+  });
+  check("non-phone name rejected", badName.ok === false, badName.error?.message);
 
   // SIM registry
   const sims = await api("/me/sims", {
@@ -233,6 +296,16 @@ async function main() {
   check("REST ingestion while receiver offline", offline1.ok === true && offline1.data?.seq === 2);
   check("idempotent dedup on same clientMsgId", offline2.ok === true && offline2.data?.deduplicated === true && offline2.data?.seq === 2);
 
+  const exists = await api<{ existing: string[] }>("/messages/exists", {
+    method: "POST",
+    token: senderToken,
+    body: { pairId, clientMsgIds: [sharedClientMsgId, "not-stored-" + Date.now()] },
+  });
+  check(
+    "exists pre-check reports stored clientMsgId",
+    exists.ok === true && exists.data?.existing.length === 1 && exists.data?.existing[0] === sharedClientMsgId,
+  );
+
   // 9) Reconnect -> sync hint -> fetch missed messages
   const hintPromise = nextSyncHint();
   const receiverSock2 = await connect(receiverToken);
@@ -259,11 +332,13 @@ async function main() {
   senderSock.close();
   receiverSock2.close();
 
+  await disconnectMongo();
   console.log(`\n${failures === 0 ? "ALL CHECKS PASSED ✓" : failures + " CHECK(S) FAILED ✗"}\n`);
   process.exit(failures === 0 ? 0 : 1);
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
+  await disconnectMongo().catch(() => undefined);
   console.error("\nSMOKE TEST CRASHED:", err);
   process.exit(1);
 });

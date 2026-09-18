@@ -1,27 +1,9 @@
-/**
- * Sender tab navigator: Pairing / SIM & Routing / Message Logs / Settings.
- */
 import React from "react";
 import { Tabs } from "expo-router";
-import { Text, type ColorValue } from "react-native";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
-
-function ConnectionDot() {
-  const connection = useDeviceStore((s) => s.connection);
-  const map: Record<string, string> = {
-    online: colors.green,
-    connecting: colors.yellow,
-    offline: colors.red,
-    none: colors.textFaint,
-  };
-  return <Text style={{ color: map[connection] ?? colors.textFaint, fontSize: 18 }}>●</Text>;
-}
-
-const icon = (glyph: string) =>
-  function TabIcon({ color }: { color: ColorValue }) {
-    return <Text style={{ fontSize: 18, color }}>{glyph}</Text>;
-  };
+import { tabIcon } from "@/components/Icon";
+import { ConnectionStatus } from "@/components/ConnectionStatus";
 
 export default function SenderLayout() {
   return (
@@ -32,24 +14,53 @@ export default function SenderLayout() {
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
         tabBarActiveTintColor: colors.accentSoft,
         tabBarInactiveTintColor: colors.textFaint,
-        headerRight: () => <ConnectionDot />,
+        headerRight: () => <ConnectionStatus />,
       }}
     >
       <Tabs.Screen
         name="index"
-        options={{ title: "SIMBridge", tabBarLabel: "Pairing", tabBarIcon: icon("🔗") }}
+        options={{
+          title: "Pairing",
+          tabBarLabel: "Pairing",
+          tabBarIcon: tabIcon("link"),
+          tabBarAccessibilityLabel: "Pairing",
+        }}
       />
       <Tabs.Screen
         name="sims"
-        options={{ title: "SIM & Routing", tabBarLabel: "SIMs", tabBarIcon: icon("💳") }}
+        options={{
+          title: "SIM & Routing",
+          tabBarLabel: "SIMs",
+          tabBarIcon: tabIcon("card"),
+          tabBarAccessibilityLabel: "SIM and routing",
+        }}
+      />
+      <Tabs.Screen
+        name="scan"
+        options={{
+          title: "Scan QR",
+          tabBarLabel: "Scan",
+          tabBarIcon: tabIcon("qr"),
+          tabBarAccessibilityLabel: "Scan QR code",
+        }}
       />
       <Tabs.Screen
         name="logs"
-        options={{ title: "Message Logs", tabBarLabel: "Logs", tabBarIcon: icon("📋") }}
+        options={{
+          title: "Message Logs",
+          tabBarLabel: "Logs",
+          tabBarIcon: tabIcon("logs"),
+          tabBarAccessibilityLabel: "Message logs",
+        }}
       />
       <Tabs.Screen
         name="settings"
-        options={{ title: "Settings & Diagnostics", tabBarLabel: "Settings", tabBarIcon: icon("⚙️") }}
+        options={{
+          title: "Settings & Diagnostics",
+          tabBarLabel: "Settings",
+          tabBarIcon: tabIcon("settings"),
+          tabBarAccessibilityLabel: "Settings",
+        }}
       />
     </Tabs>
   );

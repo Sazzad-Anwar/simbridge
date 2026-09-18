@@ -33,4 +33,8 @@ const DeviceSchema = new Schema<DeviceDoc>(
 
 DeviceSchema.index({ role: 1, status: 1 });
 
+// The device name IS the device's phone number — enforce uniqueness so a
+// phone number cannot be registered twice.
+DeviceSchema.index({ name: 1 }, { unique: true });
+
 export const Device = model<DeviceDoc>("Device", DeviceSchema);

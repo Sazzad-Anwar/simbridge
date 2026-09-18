@@ -32,6 +32,8 @@ export const errors = {
     new ApiError(410, ERROR_CODES.PAIR_CODE_EXPIRED, "Pairing code is invalid or expired"),
   pairAlreadyActive: () =>
     new ApiError(409, ERROR_CODES.PAIR_ALREADY_ACTIVE, "These devices are already paired"),
+  duplicate: (msg = "A device with this phone number is already registered") =>
+    new ApiError(409, ERROR_CODES.VALIDATION_ERROR, msg),
   rateLimited: (retryAfterSeconds: number) =>
     new ApiError(429, ERROR_CODES.RATE_LIMITED, `Too many requests. Retry in ${retryAfterSeconds}s`, {
       retryAfterSeconds,

@@ -32,6 +32,9 @@ export default function RootLayout() {
       // Safety net: periodic flush + sync (also covers missed connectivity events).
       void useMessageStore.getState().flushOutbox();
       void useMessageStore.getState().syncAll();
+      if (role === "sender") {
+        void useMessageStore.getState().drainNativeOutbox();
+      }
     }, 30_000);
     return () => {
       clearInterval(timer);
@@ -46,13 +49,24 @@ export default function RootLayout() {
     void (async () => {
       const { smsBridge } = await import("@/native/sms-bridge");
       const device = useDeviceStore.getState();
+      await smsBridge.requestSmsPermissions().catch(() => undefined);
       await device.refreshSims().catch(() => undefined);
       await smsBridge.startService().catch(() => undefined);
+
+      // Forward any SMS that arrived while the JS layer was dead.
+      await useMessageStore.getState().drainNativeOutbox().catch(() => undefined);
 
       unsub = smsBridge.onSmsReceived((sms) => {
         void (async () => {
           const { pairs } = useDeviceStore.getState();
           const active = pairs.find((p) => p.status === "active" && p.receiverPublicKey);
+          console.log("[smsbridge] live onSmsReceived", {
+            from: sms.originatingAddress,
+            len: sms.body.length,
+            sub: sms.subscriptionId,
+            activePair: !!active?.receiverPublicKey,
+            pairCount: pairs.length,
+          });
           if (!active?.receiverPublicKey) return; // no paired receiver yet -> drop silently
           const routing = (await import("@/lib/storage")).storage;
           const routes = await routing.getRouting();
@@ -66,6 +80,13 @@ export default function RootLayout() {
             receiverNumber: sms.originatingAddress,
             pairId: active.pairId,
             receiverPublicKey: active.receiverPublicKey,
+            clientMsgId: (await import("@/native/sms-bridge")).smsClientMsgId({
+              pairId: active.pairId,
+              body: sms.body,
+              sender: sms.originatingAddress,
+              timestamp: sms.timestamp,
+              subscriptionId: sms.subscriptionId,
+            }),
             sim: {
               subscriptionId: sim.subscriptionId,
               carrierName: sim.carrierName,

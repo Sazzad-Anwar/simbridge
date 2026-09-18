@@ -16,7 +16,7 @@ class SmsReceiver : android.content.BroadcastReceiver() {
 
   @SuppressLint("UnsafeProtectedBroadcastReceiver")
   override fun onReceive(context: Context, intent: android.content.Intent) {
-    if (intent.action != TelephonyManager.ACTION_SMS_RECEIVED) return
+    if (intent.action != android.provider.Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
     val bundle = intent.extras ?: return
     val messages = TelephonyManagerCompat.getMessagesFromIntent(intent) ?: return

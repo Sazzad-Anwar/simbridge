@@ -11,6 +11,8 @@ import type {
   AckInput,
   AckResult,
   EncryptedPayload,
+  ExistsInput,
+  ExistsResult,
   MessageDTO,
   Role,
   SendMessageInput,
@@ -213,4 +215,23 @@ export async function syncMessages(
   const lastSeq = page.length > 0 ? page[page.length - 1].seq : afterSeq;
 
   return { messages: page.map(toMessageDTO), hasMore, lastSeq };
+}
+
+/** Return which clientMsgIds already exist in a pair — used by senders to skip re-sending. */
+export async function checkClientMsgIdsExist(
+  device: { deviceId: string },
+  input: ExistsInput,
+): Promise<ExistsResult> {
+  const pair = await Pair.findOne({ pairId: input.pairId }).lean();
+  if (!pair) throw errors.pairNotFound();
+  if (pair.senderDeviceId !== device.deviceId && pair.receiverDeviceId !== device.deviceId) {
+    throw errors.forbidden("You are not a participant of this pair");
+  }
+  const docs = await Message.find({
+    pairId: input.pairId,
+    clientMsgId: { $in: input.clientMsgIds },
+  })
+    .select("clientMsgId")
+    .lean<Array<{ clientMsgId: string }>>();
+  return { existing: docs.map((d) => d.clientMsgId) };
 }

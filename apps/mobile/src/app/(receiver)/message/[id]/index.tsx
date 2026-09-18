@@ -82,7 +82,7 @@ export default function MessageDetail() {
         <Muted style={{ fontSize: 12 }}>
           This message was encrypted by the sender with YOUR public key
           (X25519 + XSalsa20-Poly1305) and decrypted locally with the private key
-          stored in this device's Keystore. The backend only ever handled ciphertext.
+          stored in the Keystore on this device. The backend only ever handled ciphertext.
         </Muted>
       </Card>
     </ScrollView>

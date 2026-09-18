@@ -21,6 +21,8 @@ class SmsBridgeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("SmsBridge")
 
+    Events("onSmsReceived", "onConnectivityChanged", "onOutboxChanged")
+
     OnCreate {
       val context = appContext.reactContext ?: return@OnCreate
       SmsEventHub.onEvent = { name, body ->
@@ -57,7 +59,7 @@ class SmsBridgeModule : Module() {
     AsyncFunction("startForegroundService") { promise: expo.modules.kotlin.Promise ->
       val context = appContext.reactContext
       if (context == null) {
-        promise.reject("NO_CONTEXT", "Application context unavailable")
+        promise.reject("NO_CONTEXT", "Application context unavailable", null)
         return@AsyncFunction
       }
       ForegroundService.start(context)
@@ -73,10 +75,22 @@ class SmsBridgeModule : Module() {
     Function("getOutbox") {
       val context = appContext.reactContext
       return@Function if (context == null) {
-        emptyArray<Any>()
+        emptyList<Map<String, Any?>>()
       } else {
         val arr = OutboxStore.all(context)
-        Array(arr.length()) { i -> arr.get(i) }
+        buildList {
+          for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            add(
+              buildMap {
+                for (key in obj.keys()) {
+                  val v = obj.opt(key)
+                  if (v != null && v != org.json.JSONObject.NULL) put(key, v)
+                }
+              }
+            )
+          }
+        }
       }
     }
 

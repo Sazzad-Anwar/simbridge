@@ -35,6 +35,8 @@ export interface RegisterResult {
   accessToken: string;
   tokenType: "Bearer";
   expiresIn: number;
+  /** Canonical role — on a reclaim this may differ from the requested role. */
+  role: Role;
 }
 
 export interface TokenResult {
@@ -124,6 +126,15 @@ export interface SyncResult {
   messages: MessageDTO[];
   hasMore: boolean;
   lastSeq: number;
+}
+
+export interface ExistsInput {
+  pairId: string;
+  clientMsgIds: string[];
+}
+
+export interface ExistsResult {
+  existing: string[];
 }
 
 export interface AckInput {

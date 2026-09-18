@@ -4,6 +4,7 @@ import { Device } from "../db/models/device.js";
 import { SimSubscription } from "../db/models/sim.js";
 import { toDeviceDTO } from "../services/pairing.js";
 import { errors } from "../utils/errors.js";
+import { isValidPhoneNumber, normalizePhoneNumber } from "@simbridge/shared";
 import type { DeviceDTO, SimInfo } from "@simbridge/shared";
 
 const SimBody = t.Object({
@@ -45,21 +46,30 @@ export const deviceRoutes = new Elysia({ prefix: "/me", tags: ["devices"] })
   .patch(
     "/",
     async ({ auth, body }) => {
-      await Device.updateOne(
-        { deviceId: auth.deviceId },
-        {
-          $set: {
-            ...(body.name !== undefined ? { name: body.name } : {}),
-            ...(body.pushToken !== undefined ? { pushToken: body.pushToken } : {}),
-          },
-        },
-      );
+      const patch: Record<string, unknown> = {};
+      if (body.name !== undefined) {
+        const name = normalizePhoneNumber(body.name);
+        if (!isValidPhoneNumber(name)) {
+          throw errors.validation("name must be a phone number (e.g. +15551234567)");
+        }
+        const taken = await Device.findOne({
+          name,
+          deviceId: { $ne: auth.deviceId },
+        })
+          .select("_id")
+          .lean();
+        if (taken) throw errors.duplicate();
+        patch.name = name;
+      }
+      if (body.pushToken !== undefined) patch.pushToken = body.pushToken;
+
+      await Device.updateOne({ deviceId: auth.deviceId }, { $set: patch });
       return { ok: true as const, data: await deviceWithSims(auth.deviceId) };
     },
     {
-      detail: { summary: "Update device profile (name, push token)" },
+      detail: { summary: "Update device profile (name = phone number, push token)" },
       body: t.Object({
-        name: t.Optional(t.String({ minLength: 1, maxLength: 60 })),
+        name: t.Optional(t.String({ minLength: 1, maxLength: 30 })),
         pushToken: t.Optional(t.String({ maxLength: 500 })),
       }),
     },

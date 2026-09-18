@@ -1,6 +1,11 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "../auth/guard.js";
-import { sendMessage, acknowledgeMessages, syncMessages } from "../services/messages.js";
+import {
+  sendMessage,
+  acknowledgeMessages,
+  syncMessages,
+  checkClientMsgIdsExist,
+} from "../services/messages.js";
 
 const EncryptedPayloadBody = t.Object({
   ciphertext: t.String({ minLength: 16, maxLength: 64_000 }),
@@ -44,6 +49,24 @@ export const messageRoutes = new Elysia({ prefix: "/messages", tags: ["messages"
             phoneNumber: t.Optional(t.String()),
           }),
         ),
+      }),
+    },
+  )
+  .post(
+    "/exists",
+    async ({ auth, body }) => {
+      const result = await checkClientMsgIdsExist({ deviceId: auth.deviceId }, body);
+      return { ok: true as const, data: result };
+    },
+    {
+      detail: {
+        summary: "Check which clientMsgIds already exist in a pair",
+        description:
+          "Senders call this before enqueueing a batch so messages already stored in the DB are not re-encrypted or re-sent (dedup pre-check).",
+      },
+      body: t.Object({
+        pairId: t.String({ minLength: 4 }),
+        clientMsgIds: t.Array(t.String({ minLength: 6, maxLength: 80 }), { maxItems: 500 }),
       }),
     },
   )

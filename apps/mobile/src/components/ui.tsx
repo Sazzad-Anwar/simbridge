@@ -92,6 +92,8 @@ export function Button({
     <Pressable
       onPress={onPress}
       disabled={disabled || busy}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || busy, busy }}
       style={({ pressed }) => [
         styles.button,
         { backgroundColor: bg, borderColor: variant === "ghost" ? colors.border : "transparent" },

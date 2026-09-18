@@ -3,10 +3,15 @@
  * 6-digit code, manage active pairs.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, RefreshControl, View } from "react-native";
+import { Alert, FlatList, KeyboardAvoidingView, Platform, RefreshControl, View } from "react-native";
+import { router } from "expo-router";
+import QRCode from "react-native-qrcode-svg";
 import { Badge, Button, Card, Empty, Input, Muted, Row, Screen, StatusPill, Title } from "@/components/ui";
+import { DeviceIdentity } from "@/components/DeviceIdentity";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
+import { useScanStore } from "@/lib/scan-store";
+import { pairingQrPayload } from "@/lib/qr";
 import { api } from "@/lib/api";
 import type { CreatePairResult, PairDTO } from "@simbridge/shared";
 
@@ -14,10 +19,14 @@ export default function SenderPairing() {
   const pairs = useDeviceStore((s) => s.pairs);
   const refreshPairs = useDeviceStore((s) => s.refreshPairs);
   const connection = useDeviceStore((s) => s.connection);
+  const device = useDeviceStore((s) => s.device);
+  const scannedReceiverId = useScanStore((s) => s.receiverDeviceId);
+  const setScannedReceiverId = useScanStore((s) => s.setReceiverDeviceId);
   const [receiverId, setReceiverId] = useState("");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRequest, setLastRequest] = useState<CreatePairResult | null>(null);
+  const effectiveReceiverId = scannedReceiverId ?? receiverId;
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -30,12 +39,14 @@ export default function SenderPairing() {
   }, [refreshPairs]);
 
   const createPair = async () => {
-    if (!receiverId.trim()) return;
+    const id = effectiveReceiverId.trim();
+    if (!id) return;
     setBusy(true);
     try {
-      const result = await api.createPair({ receiverDeviceId: receiverId.trim() });
+      const result = await api.createPair({ receiverDeviceId: id });
       setLastRequest(result);
       setReceiverId("");
+      setScannedReceiverId(null);
       await refreshPairs();
       Alert.alert(
         "Pairing requested",
@@ -59,30 +70,42 @@ export default function SenderPairing() {
     ]);
 
   return (
-    <Screen>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <Screen>
       <FlatList
         data={pairs}
         keyExtractor={(p) => p.pairId}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.accentSoft} />}
         ListHeaderComponent={
           <View style={{ gap: 14, marginBottom: 16 }}>
+            <DeviceIdentity
+              deviceId={device?.deviceId ?? "…"}
+              deviceName={device?.name}
+            />
+
             <Card>
               <Row>
                 <Title>New pairing</Title>
                 <Badge label={connection === "online" ? "Connected" : connection} tone={connection === "online" ? "green" : "yellow"} />
               </Row>
               <Muted>
-                Enter the Receiver deviceId shown on the other device, then share
-                the 6-digit code with it.
+                Scan the receiver QR code or enter its deviceId, then share the
+                6-digit code.
               </Muted>
               <Input
-                value={receiverId}
-                onChangeText={setReceiverId}
+                value={effectiveReceiverId}
+                onChangeText={(t) => {
+                  setReceiverId(t);
+                  if (scannedReceiverId) setScannedReceiverId(null);
+                }}
                 placeholder="dev_xxxxxxxxxxxx"
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              <Button label="Send pairing request" onPress={() => void createPair()} busy={busy} />
+              <Row style={{ flexWrap: "wrap" }}>
+                <Button label="Scan receiver QR" variant="ghost" onPress={() => router.push("/(sender)/scan")} />
+                <Button label="Send pairing request" onPress={() => void createPair()} busy={busy} />
+              </Row>
             </Card>
 
             {lastRequest?.code ? (
@@ -91,8 +114,16 @@ export default function SenderPairing() {
                 <Title style={{ fontSize: 40, letterSpacing: 8, color: colors.accentSoft }}>
                   {lastRequest.code}
                 </Title>
+                <View style={{ paddingVertical: 8 }}>
+                  <QRCode
+                    value={pairingQrPayload(lastRequest.pairId, lastRequest.code)}
+                    size={180}
+                    color={colors.text}
+                    backgroundColor={colors.surface}
+                  />
+                </View>
                 <Muted style={{ fontSize: 11 }}>
-                  Receiver opens SIMBridge → Pairing → enter code. Expires in 10 min.
+                  Receiver scans this QR (Scan tab) or enters the code. Expires in 10 min.
                 </Muted>
               </Card>
             ) : null}
@@ -123,5 +154,6 @@ export default function SenderPairing() {
         }
       />
     </Screen>
+    </KeyboardAvoidingView>
   );
 }

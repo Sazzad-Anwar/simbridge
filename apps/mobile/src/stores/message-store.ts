@@ -17,6 +17,7 @@ import { api } from "../lib/api";
 import { connectSocket, getSocket, emitWithAck } from "../lib/socket";
 import { useDeviceStore } from "./device-store";
 import { notify } from "../lib/notifications";
+import { smsClientMsgId } from "../native/sms-bridge";
 
 let wired = false;
 let unsubFns: Array<() => void> = [];
@@ -39,10 +40,14 @@ interface MessageState {
     pairId: string;
     receiverPublicKey: string;
     sim: OutboxEntry["sim"];
+    clientMsgId?: string;
   }) => Promise<void>;
 
   /** Step 5 — retry PENDING/FAILED outbox entries (reconnect / app start). */
   flushOutbox: () => Promise<void>;
+
+  /** Drain the native encrypted outbox (SMS persisted while JS was dead). */
+  drainNativeOutbox: () => Promise<void>;
 
   /** Step 7 — fetch missed messages for every active pair (lastSeq cursor). */
   syncAll: () => Promise<void>;
@@ -115,10 +120,18 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ outbox, inbox, lastSeq });
   },
 
-  async enqueueSms({ smsBody, receiverNumber, pairId, receiverPublicKey, sim }) {
-    const clientMsgId = `sms-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  async enqueueSms({ smsBody, receiverNumber, pairId, receiverPublicKey, sim, clientMsgId = "" }) {
+    const id = clientMsgId || smsClientMsgId({
+      pairId,
+      body: smsBody,
+      sender: receiverNumber,
+      timestamp: Date.now(),
+      subscriptionId: sim?.subscriptionId,
+    });
+    const existing = await storage.getOutbox();
+    if (existing.some((e) => e.clientMsgId === id)) return;
     const entry: OutboxEntry = {
-      clientMsgId,
+      clientMsgId: id,
       pairId,
       receiverNumber,
       smsBody,
@@ -135,7 +148,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const payload = encrypt(receiverPublicKey, smsBody);
       await deliver(entry, payload);
     } catch (err) {
-      const updated = await storage.updateOutboxEntry(clientMsgId, {
+      const updated = await storage.updateOutboxEntry(id, {
         status: "failed",
         error: String(err),
         attempts: entry.attempts + 1,
@@ -167,6 +180,86 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
   },
 
+  async drainNativeOutbox() {
+    const { smsBridge } = await import("../native/sms-bridge");
+    const native = smsBridge.getOutbox();
+    if (native.length === 0) return;
+    console.log("[smsbridge] drain: got", native.length, "native entries");
+
+    const { pairs } = useDeviceStore.getState();
+    const active = pairs.find((p) => p.status === "active" && p.receiverPublicKey);
+    if (!active?.receiverPublicKey) return; // no paired receiver yet — keep native entries
+
+    const existing = await storage.getOutbox();
+    const known = new Set(existing.map((e) => e.clientMsgId));
+
+    const candidates: {
+      body: string;
+      sender: string;
+      clientMsgId: string;
+      raw: (typeof native)[number];
+    }[] = [];
+    for (const raw of native) {
+      const body = raw.body?.trim();
+      const sender = raw.originatingAddress?.trim();
+      if (!body || !sender) continue;
+      const clientMsgId = smsClientMsgId({
+        pairId: active.pairId,
+        body,
+        sender,
+        timestamp: raw.timestamp ?? 0,
+        subscriptionId: raw.subscriptionId,
+      });
+      if (known.has(clientMsgId)) continue;
+      known.add(clientMsgId);
+      candidates.push({ body, sender, clientMsgId, raw });
+    }
+
+    if (candidates.length > 0) {
+      try {
+        const { existing: stored } = await api.checkExists(
+          active.pairId,
+          candidates.map((c) => c.clientMsgId),
+        );
+        if (stored.length > 0) {
+          const storedSet = new Set(stored);
+          const kept = candidates.filter((c) => !storedSet.has(c.clientMsgId));
+          console.log(
+            "[smsbridge] drain: skipped",
+            candidates.length - kept.length,
+            "already in DB",
+          );
+          candidates.length = 0;
+          candidates.push(...kept);
+        }
+      } catch (err) {
+        console.log("[smsbridge] drain: exists pre-check failed", String(err));
+      }
+    }
+
+    let forwarded = 0;
+    for (const c of candidates) {
+      await get().enqueueSms({
+        smsBody: c.body,
+        receiverNumber: c.sender,
+        pairId: active.pairId,
+        receiverPublicKey: active.receiverPublicKey,
+        clientMsgId: c.clientMsgId,
+        sim: {
+          subscriptionId: c.raw.subscriptionId ?? 0,
+          carrierName: c.raw.simDisplayName ?? "SIM",
+          displayName: c.raw.simDisplayName,
+        },
+      });
+      forwarded++;
+    }
+
+    console.log("[smsbridge] drain: forwarded", forwarded, "of", native.length);
+    // The JS outbox is now the authoritative record (it retains sent entries),
+    // so the native mirror can be dropped once snapshot has been reconciled.
+    smsBridge.clearOutbox();
+  },
+
   async syncAll() {
     const { pairs, profile } = useDeviceStore.getState();
     const role = profile?.role;
@@ -179,24 +272,32 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     for (const pair of active) {
       try {
-        const after = lastSeq[pair.pairId] ?? 0;
-        const res = await api.sync(pair.pairId, after);
-        for (const msg of res.messages) {
-          if (!inbox.some((m) => m.messageId === msg.messageId)) {
-            inbox.push({ ...msg });
-            changed = true;
+        let after = lastSeq[pair.pairId] ?? 0;
+        const pageSize = 200;
+        const fetched: import("@simbridge/shared").MessageDTO[] = [];
+        do {
+          const res = await api.sync(pair.pairId, after, pageSize);
+          fetched.push(...res.messages);
+          after = res.lastSeq;
+          for (const msg of res.messages) {
+            if (!inbox.some((m) => m.messageId === msg.messageId)) {
+              inbox.push({ ...msg });
+              changed = true;
+            }
+            lastSeq[pair.pairId] = Math.max(lastSeq[pair.pairId] ?? 0, msg.seq);
           }
-          lastSeq[pair.pairId] = Math.max(lastSeq[pair.pairId] ?? 0, msg.seq);
-        }
+          if (!res.hasMore) break;
+          if (res.messages.length === 0) break;
+        } while (true);
 
-        if (role === "receiver" && res.messages.length > 0) {
-          const ids = res.messages.filter((m) => m.status === "sent").map((m) => m.messageId);
+        if (role === "receiver" && fetched.length > 0) {
+          const ids = fetched.filter((m) => m.status === "sent").map((m) => m.messageId);
           if (ids.length > 0) await api.ack(ids).catch(() => undefined);
         }
 
-        if (role === "sender" && res.messages.length > 0) {
+        if (role === "sender" && fetched.length > 0) {
           // Mirror remote delivery statuses into the local outbox (step 6/7).
-          const statusById = new Map(res.messages.map((m) => [m.messageId, m.status]));
+          const statusById = new Map(fetched.map((m) => [m.messageId, m.status]));
           const outbox = await storage.getOutbox();
           let dirty = false;
           for (const entry of outbox) {
@@ -309,8 +410,18 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       })();
     });
 
+    socket.on("pairing:incoming", () => {
+      void deviceStore.refreshPairs();
+    });
     socket.on("pairing:accepted", () => {
       void deviceStore.refreshPairs();
+      void get().flushOutbox();
+      const role = useDeviceStore.getState().profile?.role;
+      if (role === "sender") {
+        void get().drainNativeOutbox();
+      } else {
+        void get().syncAll();
+      }
     });
     socket.on("pair:revoked", () => {
       void deviceStore.refreshPairs();
@@ -320,7 +431,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const { smsBridge } = await import("../native/sms-bridge");
     unsubFns.push(
       smsBridge.onConnectivityChanged(({ online }) => {
-        if (online) void get().flushOutbox();
+        if (online) {
+          void get().flushOutbox();
+          const role = useDeviceStore.getState().profile?.role;
+          if (role === "sender") void get().drainNativeOutbox();
+        }
       }),
     );
 

@@ -5,7 +5,6 @@ import { create } from "zustand";
 import type { DeviceDTO, PairDTO, SimInfo } from "@simbridge/shared";
 // Randomness polyfill MUST run before @simbridge/crypto loads (tweetnacl
 // captures its PRNG when the module is evaluated). See src/lib/random-polyfill.ts.
-import "../lib/random-polyfill";
 import { api } from "../lib/api";
 import { secrets, storage } from "../lib/storage";
 import { generateKeyPair } from "@simbridge/crypto";
@@ -73,16 +72,19 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       // Re-register flow: refresh the token, update profile server-side.
       const res = await api.token(deviceId, apiKey);
       token = res.accessToken;
+      await secrets.set("token", token);
       await api.updateMe({ name });
     } else {
       const res = await api.register({ name, role, publicKey, platform: "android" });
       await secrets.set("deviceId", res.deviceId);
       await secrets.set("apiKey", res.apiKey);
       token = res.accessToken;
+      await secrets.set("token", token);
       await api.updateMe({ name });
+      // The backend is authoritative about the role (a reclaim may return one
+      // that differs from the freshly picked role after a local data wipe).
+      role = res.role;
     }
-
-    await secrets.set("token", token!);
 
     const newProfile = { name, role };
     await storage.setProfile(newProfile);

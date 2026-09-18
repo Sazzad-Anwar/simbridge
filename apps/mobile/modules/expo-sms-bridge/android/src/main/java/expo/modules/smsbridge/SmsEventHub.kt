@@ -15,6 +15,7 @@ object SmsEventHub {
   var onEvent: ((name: String, body: Map<String, Any?>) -> Unit)? = null
 
   fun emit(name: String, body: Map<String, Any?>) {
+    Log.d(TAG, "emit $name (listener=${onEvent != null}) body=${body.keys}")
     try {
       onEvent?.invoke(name, body)
     } catch (e: Exception) {

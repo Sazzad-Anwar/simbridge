@@ -2,7 +2,7 @@
  * Sender — Message Logs & Status: local outbox with PENDING / SENT /
  * DELIVERED states, mirroring the offline-to-online recovery flow.
  */
-import React, { useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, RefreshControl, View } from "react-native";
 import { Button, Card, Empty, Muted, Row, Screen, StatusPill, Title } from "@/components/ui";
 import { colors } from "@/constants/theme";
@@ -13,12 +13,24 @@ export default function LogsScreen() {
   const outbox = useMessageStore((s) => s.outbox);
   const flushOutbox = useMessageStore((s) => s.flushOutbox);
   const syncAll = useMessageStore((s) => s.syncAll);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     void syncAll();
   }, [syncAll]);
 
   const pending = outbox.filter((e) => e.status === "pending" || e.status === "failed").length;
+
+  const refresh = useCallback(() => {
+    setRefreshing(true);
+    void Promise.all([flushOutbox(), syncAll()]).finally(() => setRefreshing(false));
+  }, [flushOutbox, syncAll]);
+
+  const retry = useCallback(() => {
+    setBusy(true);
+    void flushOutbox().finally(() => setBusy(false));
+  }, [flushOutbox]);
 
   return (
     <Screen>
@@ -28,8 +40,8 @@ export default function LogsScreen() {
         contentContainerStyle={{ gap: 10, paddingBottom: 24 }}
         refreshControl={
           <RefreshControl
-            refreshing={false}
-            onRefresh={() => void Promise.all([flushOutbox(), syncAll()])}
+            refreshing={refreshing}
+            onRefresh={() => refresh()}
             tintColor={colors.accentSoft}
           />
         }
@@ -44,7 +56,7 @@ export default function LogsScreen() {
                 </Muted>
               </View>
               {pending > 0 ? (
-                <Button label={`Retry ${pending}`} variant="ghost" onPress={() => void flushOutbox()} />
+                <Button label={`Retry ${pending}`} variant="ghost" onPress={() => retry()} busy={busy} />
               ) : null}
             </Row>
           </Card>

@@ -24,6 +24,20 @@ export type Platform = (typeof PLATFORMS)[number];
 export const ENCRYPTION_SCHEME = "x25519-xsalsa20-poly1305" as const;
 export type EncryptionScheme = typeof ENCRYPTION_SCHEME;
 
+/**
+ * Device `name` is the device's phone number. Normalization strips common
+ * separators (spaces, dashes, parens, dots) so `+1 555 123 4567` and
+ * `+15551234567` are treated as the same unique device.
+ */
+export const normalizePhoneNumber = (value: string): string =>
+  value.trim().replace(/[\s().-]/g, "");
+
+/** Accepted formats: optional leading `+`, then 7-15 digits. */
+export const PHONE_NUMBER_RE = /^\+?[0-9]{7,15}$/;
+
+export const isValidPhoneNumber = (value: string): boolean =>
+  PHONE_NUMBER_RE.test(normalizePhoneNumber(value));
+
 /** Room naming — the backend groups sockets by pair room. */
 export const pairRoom = (roomId: string) => `pair:${roomId}`;
 export const deviceRoom = (deviceId: string) => `device:${deviceId}`;

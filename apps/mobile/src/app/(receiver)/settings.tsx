@@ -3,7 +3,8 @@
  */
 import React, { useEffect, useState } from "react";
 import { Alert, ScrollView } from "react-native";
-import { Badge, Button, Card, Muted, Row, Screen, Title } from "@/components/ui";
+import { Badge, Button, Card, Muted, Row, Title } from "@/components/ui";
+import { DeviceIdentity } from "@/components/DeviceIdentity";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
 import { getServerUrl } from "@/lib/api";
@@ -14,10 +15,10 @@ import { publicKeyFromSecret } from "@simbridge/crypto";
 
 export default function ReceiverSettings() {
   const device = useDeviceStore((s) => s.device);
-  const profile = useDeviceStore((s) => s.profile);
   const connection = useDeviceStore((s) => s.connection);
   const reset = useDeviceStore((s) => s.reset);
   const [keyOk, setKeyOk] = useState<boolean | null>(null);
+  const [deviceId, setDeviceId] = useState<string>("…");
 
   useEffect(() => {
     void (async () => {
@@ -34,6 +35,10 @@ export default function ReceiverSettings() {
     })();
   }, []);
 
+  useEffect(() => {
+    void secrets.get("deviceId").then((id) => setDeviceId(id ?? "unknown"));
+  }, []);
+
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: 16, gap: 14 }}>
       <Card>
@@ -44,6 +49,8 @@ export default function ReceiverSettings() {
         <Muted>Server: {getServerUrl()}</Muted>
         <Muted>Device: {device?.name ?? "unknown"}</Muted>
       </Card>
+
+      <DeviceIdentity deviceId={deviceId} deviceName={device?.name} title="Device identity" />
 
       <Card>
         <Title>Encryption keys</Title>

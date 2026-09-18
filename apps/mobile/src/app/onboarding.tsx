@@ -1,18 +1,20 @@
 /**
- * Onboarding — initial setup: device name, then generate the identity key
- * pair and continue to role selection (step 1 & 2 of the flow).
+ * Onboarding — initial setup: the device's phone number (its unique device
+ * name), then generate the identity key pair and continue to role selection
+ * (step 1 & 2 of the flow).
  *
  * The server URL is FIXED — auto-resolved from the Expo dev host (or
  * EXPO_PUBLIC_API_URL), see src/lib/api.ts. No user input needed.
  */
 import React, { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { Button, Card, Input, Muted, Row, Screen, Title } from "@/components/ui";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
 import { api, getServerUrl } from "@/lib/api";
 import { storage } from "@/lib/storage";
+import { isValidPhoneNumber, normalizePhoneNumber } from "@simbridge/shared";
 
 export default function Onboarding() {
   const registered = useDeviceStore((s) => s.registered);
@@ -27,9 +29,14 @@ export default function Onboarding() {
     setBusy(true);
     setError(null);
     try {
+      const phone = normalizePhoneNumber(name);
+      if (!isValidPhoneNumber(phone)) {
+        setError("Enter a valid phone number (e.g. +15551234567)");
+        return;
+      }
       await api.health(); // fail fast if the backend is unreachable (8s timeout)
-      // Temporarily stash the profile so /role can read the name.
-      const profile = { name: name.trim() || "My device", role: "sender" as const };
+      // Temporarily stash the profile so /role can read the phone number.
+      const profile = { name: phone, role: "sender" as const };
       useDeviceStore.setState({ profile });
       await storage.setProfile(profile);
       await useDeviceStore.getState().hydrate();
@@ -44,7 +51,8 @@ export default function Onboarding() {
   };
 
   return (
-    <Screen style={{ justifyContent: "center", gap: 18 }}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <Screen style={{ justifyContent: "center", gap: 18 }}>
       <Row>
         <View style={styles.logo}>
           <Text style={{ fontSize: 26 }}>🔗</Text>
@@ -66,8 +74,16 @@ export default function Onboarding() {
           <Muted style={{ color: colors.accentSoft, fontWeight: "600" }}>{getServerUrl()}</Muted>
         </View>
         <View>
-          <Muted style={{ marginBottom: 6 }}>Device name</Muted>
-          <Input value={name} onChangeText={setName} placeholder="e.g. My old phone" />
+          <Muted style={{ marginBottom: 6 }}>Phone number (device name)</Muted>
+          <Input
+            value={name}
+            onChangeText={setName}
+            placeholder="+1 555 123 4567"
+            keyboardType="phone-pad"
+            autoCorrect={false}
+            autoCapitalize="none"
+            textContentType="telephoneNumber"
+          />
         </View>
         {error ? <Muted style={{ color: colors.red }}>{error}</Muted> : null}
         <Button label="Continue" onPress={() => void proceed()} busy={busy} />
@@ -87,6 +103,7 @@ export default function Onboarding() {
         </Row>
       </Card>
     </Screen>
+    </KeyboardAvoidingView>
   );
 }
 
