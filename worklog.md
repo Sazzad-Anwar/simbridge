@@ -108,3 +108,20 @@ Work Log:
 Stage Summary:
 - Onboarding flow now works end-to-end in Expo Go: enter name -> Continue -> health check (8s cap) -> role selection -> Sender/Receiver -> registration -> role tabs.
 - No API/schema changes; auth-free /health call only. No leftover dynamic storage import.
+
+---
+Task ID: 7
+Agent: Super Z (main agent)
+Task: Fix "[exact-mirror] TypeBox's TypeCompiler is required to use Union" log spam from the API (seen on user's Mac when the phone hits /auth/register).
+
+Work Log:
+- Diagnosed the log line: it is console.warn(new Error(...)) inside exact-mirror's handleUnion — a NON-FATAL warning (request still processed; only union-value normalization is skipped), which is why smoke 22/22 had passed even with it present. It fires for any route schema containing t.Union — ours: /auth/register body (role, platform literals).
+- Root cause: dependency API mismatch. elysia@1.4.30 calls createMirror(schema, { TypeCompiler, ... }) (option key "TypeCompiler" from @sinclair/typebox 0.34), but exact-mirror@1.2.6 destructures { Compile, ... } — exact-mirror 1.x switched to the NEW typebox v1 package (peerDependency "typebox >= 1.1.0"). elysia declares exact-mirror: ">= 0.0.9" so pnpm resolved latest (1.2.6), which never reads the key elysia passes -> instruction.Compile always undefined -> warning per union schema compile.
+- Fix: pinned exact-mirror@0.2.7 via pnpm.overrides in root package.json — 0.2.7 is the version elysia 1.4.30 itself tests against (its devDependency is ^0.2.7), reads the TypeCompiler option key, statically imports TypeCompiler from @sinclair/typebox/compiler (peer @sinclair/typebox ^0.34.15 -> our 0.34.52).
+- pnpm install regenerated lockfile; elysia/@elysiajs virtual folders now resolve exact-mirror@0.2.7_@sinclair+typebox@0.34.52.
+- Verified: rebuilt apps/api dist; restarted API; smoke 22/22 ALL PASS (incl. sender+receiver registration = the Union route); rg of API log for "exact-mirror|TypeCompiler" -> ZERO matches (warning gone); apps/api tsc --noEmit PASS. Note: sandbox reaps background processes between shell calls, so server+smoke were run in a single shell invocation; API left running healthy on :3000.
+- Also noted: @sinclair/typebox@0.27.12 in the tree comes from @jest/schemas@29.6.3 (jest dev tooling) — harmless, not runtime.
+
+Stage Summary:
+- exact-mirror pinned to 0.2.7 (root package.json pnpm.overrides + pnpm-lock.yaml updated). Union schemas now compile through TypeBox TypeCompiler: no log spam, full exact-mirror value normalization restored for union fields.
+- For the user's local copy: add the same pnpm.overrides block to package.json (or re-sync the updated workspace files), run pnpm install, restart the API.

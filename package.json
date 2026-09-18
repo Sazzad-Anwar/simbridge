@@ -25,5 +25,8 @@
   "devDependencies": {
     "turbo": "^2.5.0",
     "typescript": "~6.0.3"
+  },
+  "overrides": {
+    "exact-mirror": "0.2.7"
   }
 }

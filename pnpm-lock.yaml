@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  exact-mirror: 0.2.7
+
 importers:
 
   .:
@@ -19,10 +22,10 @@ importers:
     dependencies:
       '@elysiajs/cors':
         specifier: ^1.3.0
-        version: 1.4.2(elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@1.2.6)(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3))
+        version: 1.4.2(elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@0.2.7(@sinclair/typebox@0.34.52))(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3))
       '@elysiajs/swagger':
         specifier: ^1.3.0
-        version: 1.3.1(elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@1.2.6)(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3))
+        version: 1.3.1(elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@0.2.7(@sinclair/typebox@0.34.52))(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3))
       '@simbridge/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
@@ -34,7 +37,7 @@ importers:
         version: 0.34.52
       elysia:
         specifier: ^1.3.0
-        version: 1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@1.2.6)(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3)
+        version: 1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@0.2.7(@sinclair/typebox@0.34.52))(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3)
       jose:
         specifier: ^6.2.12
         version: 6.2.12
@@ -1757,7 +1760,7 @@ packages:
     peerDependencies:
       '@sinclair/typebox': '>= 0.34.0 < 1'
       '@types/bun': '>= 1.2.0'
-      exact-mirror: '>= 0.0.9'
+      exact-mirror: 0.2.7
       file-type: '>= 20.0.0'
       openapi-types: '>= 12.0.0'
       typescript: '>= 5.0.0'
@@ -1824,12 +1827,12 @@ packages:
     resolution: {integrity: sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==}
     engines: {node: '>=6'}
 
-  exact-mirror@1.2.6:
-    resolution: {integrity: sha512-EGx81nhFP1GE94coJsz94FLzdxWrnkNCJdfdX44rbd7pVcAotWzDlBJUC7yy1Ae7d7dYKpoTtZ1jCAIz2IVtfA==}
+  exact-mirror@0.2.7:
+    resolution: {integrity: sha512-+MeEmDcLA4o/vjK2zujgk+1VTxPR4hdp23qLqkWfStbECtAq9gmsvQa3LW6z/0GXZyHJobrCnmy1cdeE7BjsYg==}
     peerDependencies:
-      typebox: '>= 1.1.0'
+      '@sinclair/typebox': ^0.34.15
     peerDependenciesMeta:
-      typebox:
+      '@sinclair/typebox':
         optional: true
 
   expo-application@57.0.3:
@@ -3924,15 +3927,15 @@ snapshots:
     dependencies:
       '@types/hammerjs': 2.0.46
 
-  '@elysiajs/cors@1.4.2(elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@1.2.6)(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3))':
+  '@elysiajs/cors@1.4.2(elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@0.2.7(@sinclair/typebox@0.34.52))(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3))':
     dependencies:
-      elysia: 1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@1.2.6)(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3)
+      elysia: 1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@0.2.7(@sinclair/typebox@0.34.52))(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3)
 
-  '@elysiajs/swagger@1.3.1(elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@1.2.6)(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3))':
+  '@elysiajs/swagger@1.3.1(elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@0.2.7(@sinclair/typebox@0.34.52))(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3))':
     dependencies:
       '@scalar/themes': 0.9.86
       '@scalar/types': 0.0.12
-      elysia: 1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@1.2.6)(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3)
+      elysia: 1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@0.2.7(@sinclair/typebox@0.34.52))(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3)
       openapi-types: 12.1.3
       pathe: 1.1.2
 
@@ -5280,11 +5283,11 @@ snapshots:
 
   electron-to-chromium@1.5.430: {}
 
-  elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@1.2.6)(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3):
+  elysia@1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@0.2.7(@sinclair/typebox@0.34.52))(file-type@22.1.1)(openapi-types@12.1.3)(typescript@6.0.3):
     dependencies:
       '@sinclair/typebox': 0.34.52
       cookie: 1.1.1
-      exact-mirror: 1.2.6
+      exact-mirror: 0.2.7(@sinclair/typebox@0.34.52)
       fast-decode-uri-component: 1.0.1
       file-type: 22.1.1
       memoirist: 0.4.0
@@ -5375,7 +5378,9 @@ snapshots:
 
   event-target-shim@5.0.1: {}
 
-  exact-mirror@1.2.6: {}
+  exact-mirror@0.2.7(@sinclair/typebox@0.34.52):
+    optionalDependencies:
+      '@sinclair/typebox': 0.34.52
 
   expo-application@57.0.3(expo@57.0.23):
     dependencies:
