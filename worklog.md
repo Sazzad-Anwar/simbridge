@@ -59,3 +59,20 @@ Stage Summary:
 - Whole system verified runnable: build ✓ typecheck ✓ mongo ✓ API ✓ 22/22 smoke ✓ Android Metro bundle ✓ expo-doctor 21/21 ✓.
 - Deliverable state: pnpm-only monorepo (pnpm-lock.yaml, no bun.lock), TS 6.0.3, SDK 57-aligned versions.
 - Runbook unchanged: pnpm install -> pnpm mongo:local (or db:up) -> pnpm dev; pnpm smoke; mobile: pnpm android (dev build) or npx expo start -c.
+
+---
+Task ID: 4
+Agent: Super Z (main agent)
+Task: Fix Expo Go crash — repeated "expo-notifications: Android Push notifications removed from Expo Go" errors, "missing default export" route warnings, and "Cannot read property 'ErrorBoundary' of undefined".
+
+Work Log:
+- Root cause chain: apps/mobile/src/lib/notifications.ts statically imported expo-notifications AND called setNotificationHandler at module top-level. In Expo Go Android (SDK 53+), expo-notifications itself THROWS AT IMPORT TIME — its auto-registration side effect (build/DevicePushTokenAutoRegistration.fx.js) calls addPushTokenListener() on module scope, which hits warnOfExpoGoPushUsage() -> throw on Android. Verified in installed package source (warnOfExpoGoPushUsage.js: throw on Android; TokenEmitter.js: addPushTokenListener calls it; DevicePushTokenAutoRegistration.fx.js: module-scope addPushTokenListener call gated only on ServerRegistrationModule presence).
+- Because every expo-router route (root _layout, receiver inbox, message detail, sender logs) transitively imports @/lib/notifications, each route module failed to evaluate -> "missing default export" warnings; expo-router entry then hit undefined.ErrorBoundary. Failed module evaluations are re-thrown on every router retry -> repeated ERROR lines.
+- FIX: rewrote src/lib/notifications.ts with NO static expo-notifications import and NO top-level side effects: lazy `await import("expo-notifications")` memoized in loadNotifications(); hard gate isExpoGoAndroid() via expo-constants (appOwnership==='expo' || executionEnvironment===StoreClient) returns null BEFORE the dynamic import on Android Expo Go; setNotificationHandler moved inside loadNotifications() after successful load; initNotifications/notify/getPushToken all degrade to no-ops when null; every call path wrapped in try/catch.
+- Same exported API (initNotifications, notify, getPushToken) -> zero changes needed in _layout.tsx / message-store.ts.
+- Verified: tsc --noEmit PASS; expo export --platform android PASS (new bundle hash); grep confirms no other static expo-notifications imports in the app.
+
+Stage Summary:
+- Expo Go Android no longer evaluates expo-notifications at startup -> no import-time throw, routes all resolve, ErrorBoundary crash gone.
+- Behavior matrix: dev build / standalone = full notifications; Expo Go Android = notifications no-op (by platform limitation), all messaging/pairing features unaffected; iOS Expo Go = local notifications still work (library loads, push token still unavailable by design).
+- Recommendation to user unchanged: use a development build (pnpm android) for SMS relay + full notification features; Expo Go remains usable for UI/API testing.
