@@ -36,3 +36,26 @@ Work Log:
 Stage Summary:
 - Metro resolution error fixed; user should restart Metro with cleared cache (npx expo start -c) to re-bundle.
 - No schema/DTO/API changes; no migration needed for already-registered devices.
+
+---
+Task ID: 3
+Agent: Super Z (main agent)
+Task: Full "will it run" verification of the monorepo — build, DB, API, E2E smoke, mobile bundling, doctor checks; fix everything that fails.
+
+Work Log:
+- turbo build --force: 4/4 workspaces compile; turbo typecheck: 6/6 tasks green.
+- MongoDB 8.0.4: fastdl.mongodb.org blocked (403) in sandbox -> installed official server binary from repo.mongodb.org .deb (dpkg-deb -x) into .tools/mongodb/bin/mongod; scripts/dev-mongo.sh now idempotently reuses it; mongod running on 127.0.0.1:27017.
+- FOUND+FIXED: apps/api "start"/"main" pointed at dist/index.js but rootDir="." emits to dist/src/index.js — `pnpm start` crashed with MODULE_NOT_FOUND. Corrected both to dist/src/index.js.
+- FOUND+FIXED: root package.json "smoke" referenced nonexistent apps/api/scripts/smoke-test.mjs -> now delegates to workspace script (tsx smoke-test.ts).
+- API booted from dist: /health ok (mongo connected), / and /docs HTML 200, /docs/json OpenAPI 200, /stats correctly 401 AUTH_REQUIRED.
+- E2E smoke: 22/22 PASS (registration, token exchange, SIM registry, socket JWT handshake, pairing both directions, E2E encrypt/decrypt, acks, delivery receipt, REST sync, offline ingestion, idempotent dedup, reconnect sync hint, missed-message fetch+decrypt, auth/role guards).
+- Metro Android bundle via `expo export --platform android`: SUCCESS on the user-matching .pnpm layout (3MB .hbc) — original random-polyfill resolution error confirmed fixed end-to-end.
+- expo-doctor round 1: 4 failures -> FOUND+FIXED all: (a) dual lockfiles (bun.lock vs pnpm-lock.yaml) -> removed bun.lock, standardized on pnpm (declared packageManager); (b) expo-modules-core installed directly -> switched src/native/sms-bridge.ts to public APIs (`requireNativeModule` from "expo", `Platform` from "react-native") and dropped the dep; (c) duplicate native modules -> clean reinstall on pnpm (node-linker=legacy preserved); (d) version mismatches: async-storage ~3.1.1 -> ~2.2.0, typescript ~5.9 -> ~6.0.3 across all 5 workspace package.jsons.
+- FOUND+FIXED: TS 6 deprecates moduleResolution "Node" (node10) -> packages/shared + packages/crypto tsconfigs upgraded to module Node18 / moduleResolution Node16 (apps/api NodeNext and mobile bundler were already compliant).
+- expo-doctor round 2 (clean pnpm tree): 21/21 checks passed.
+- Re-verified after clean reinstall: turbo build 4/4, smoke 22/22, crypto fix script Scenario A/B PASS, endpoints 200.
+
+Stage Summary:
+- Whole system verified runnable: build ✓ typecheck ✓ mongo ✓ API ✓ 22/22 smoke ✓ Android Metro bundle ✓ expo-doctor 21/21 ✓.
+- Deliverable state: pnpm-only monorepo (pnpm-lock.yaml, no bun.lock), TS 6.0.3, SDK 57-aligned versions.
+- Runbook unchanged: pnpm install -> pnpm mongo:local (or db:up) -> pnpm dev; pnpm smoke; mobile: pnpm android (dev build) or npx expo start -c.

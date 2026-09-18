@@ -20,10 +20,10 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "mongo:local": "bash scripts/dev-mongo.sh",
-    "smoke": "node apps/api/scripts/smoke-test.mjs"
+    "smoke": "pnpm --filter @simbridge/api smoke"
   },
   "devDependencies": {
     "turbo": "^2.5.0",
-    "typescript": "^5.9.2"
+    "typescript": "~6.0.3"
   }
 }

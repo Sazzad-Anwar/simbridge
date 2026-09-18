@@ -5,7 +5,8 @@
  * The module is only available in dev-client / production builds
  * (not in Expo Go) — every call degrades gracefully.
  */
-import { requireNativeModule, Platform } from "expo-modules-core";
+import { requireNativeModule } from "expo";
+import { Platform } from "react-native";
 import type { SimInfo } from "@simbridge/shared";
 
 export interface SmsReceivedEvent {
