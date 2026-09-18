@@ -1,6 +1,9 @@
 /**
  * Root layout: hydration, notifications, realtime wiring, sender SMS pipeline.
  */
+// App-wide safety net: randomness polyfill for tweetnacl — must run before any
+// module that pulls in @simbridge/crypto (stores, screens) is evaluated.
+import "../lib/random-polyfill";
 import React, { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";

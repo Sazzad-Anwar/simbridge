@@ -10,6 +10,14 @@
  *
  * The backend only ever sees `{ ciphertext, ephemPublicKey, nonce }` —
  * it stores and relays opaque blobs and can never read message content.
+ *
+ * Randomness note: all randomness is drawn through `randomBytes()`, which
+ * reads `globalThis.crypto.getRandomValues` LAZILY at call time. Key pairs
+ * are therefore built from our own randomness + `nacl.scalarMult.base`
+ * instead of `nacl.box.keyPair()`, which would depend on tweetnacl's PRNG
+ * captured at module-load time (fragile on React Native). The mobile app
+ * still polyfills `globalThis.crypto` with expo-crypto at startup
+ * (apps/mobile/src/lib/random-polyfill.ts).
  */
 
 import nacl from "tweetnacl";
@@ -45,10 +53,13 @@ export function randomBytes(length: number): Uint8Array {
 
 /** Generate a device identity key pair (base64 encoded X25519). */
 export function generateKeyPair(): KeyPairB64 {
-  const kp = nacl.box.keyPair();
+  // Build the pair manually so randomness comes from randomBytes() (call-time
+  // WebCrypto lookup) rather than tweetnacl's load-time-captured PRNG.
+  const secretKey = randomBytes(nacl.box.secretKeyLength);
+  const publicKey = nacl.scalarMult.base(secretKey);
   return {
-    publicKey: bytesToBase64(kp.publicKey),
-    secretKey: bytesToBase64(kp.secretKey),
+    publicKey: bytesToBase64(publicKey),
+    secretKey: bytesToBase64(secretKey),
   };
 }
 
@@ -77,12 +88,13 @@ export function encrypt(receiverPublicKeyB64: string, plaintext: string): Encryp
   if (recipient.length !== nacl.box.publicKeyLength) {
     throw new Error("Invalid receiver public key");
   }
-  const ephemeral = nacl.box.keyPair();
+  const ephemeralSecretKey = randomBytes(nacl.box.secretKeyLength);
+  const ephemeralPublicKey = nacl.scalarMult.base(ephemeralSecretKey);
   const nonce = randomBytes(nacl.box.nonceLength);
-  const boxed = nacl.box(utf8ToBytes(plaintext), nonce, recipient, ephemeral.secretKey);
+  const boxed = nacl.box(utf8ToBytes(plaintext), nonce, recipient, ephemeralSecretKey);
   return {
     ciphertext: bytesToBase64(boxed),
-    ephemPublicKey: bytesToBase64(ephemeral.publicKey),
+    ephemPublicKey: bytesToBase64(ephemeralPublicKey),
     nonce: bytesToBase64(nonce),
     scheme: ENCRYPTION_SCHEME,
   };

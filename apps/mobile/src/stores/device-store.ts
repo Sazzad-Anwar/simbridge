@@ -3,10 +3,12 @@
  */
 import { create } from "zustand";
 import type { DeviceDTO, PairDTO, SimInfo } from "@simbridge/shared";
+// Randomness polyfill MUST run before @simbridge/crypto loads (tweetnacl
+// captures its PRNG when the module is evaluated). See src/lib/random-polyfill.ts.
+import "../lib/random-polyfill";
 import { api, initServerUrl, setServerUrl, getServerUrl } from "../lib/api";
 import { secrets, storage } from "../lib/storage";
 import { generateKeyPair } from "@simbridge/crypto";
-import "./random-polyfill";
 
 export type ConnectionStatus = "connecting" | "online" | "offline" | "none";
 

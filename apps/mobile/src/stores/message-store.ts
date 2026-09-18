@@ -9,8 +9,9 @@
  */
 import { create } from "zustand";
 import type { EncryptedPayload, MessageDTO, PairDTO } from "@simbridge/shared";
+// Polyfill before @simbridge/crypto (tweetnacl captures its PRNG at module load).
+import "../lib/random-polyfill";
 import { decrypt, encrypt } from "@simbridge/crypto";
-import "./random-polyfill";
 import { secrets, storage, type OutboxEntry } from "../lib/storage";
 import { api } from "../lib/api";
 import { connectSocket, getSocket, emitWithAck } from "../lib/socket";

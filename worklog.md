@@ -20,3 +20,19 @@ Stage Summary:
 - Verified: turbo build green for all 4 workspaces; smoke test 22/22 PASS against local MongoDB (mongodb://127.0.0.1:27017/simbridge).
 - Key decisions: single-port node adapter bridging Elysia (REST) + Socket.IO; per-pair monotonic seq for sync; idempotent ingestion on (pairId, clientMsgId); MongoDB TTL for messages/audits; Redis strictly optional (memory fallback); RN crypto identical to server crypto via shared package.
 - Runbook: pnpm install → pnpm mongo:local (or db:up) → pnpm dev → open / and /docs; pnpm smoke for E2E verification; mobile dev build (pnpm android) required for SMS features.
+
+---
+Task ID: 2
+Agent: Super Z (main agent)
+Task: Fix Android bundling failure — "Unable to resolve ./random-polyfill from apps/mobile/src/stores/device-store.ts"
+
+Work Log:
+- Root cause: polyfill lives at apps/mobile/src/lib/random-polyfill.ts, but device-store.ts and message-store.ts imported "./random-polyfill" (relative to src/stores/) — Metro could not resolve the module.
+- Found two latent bugs with the same root cause: (1) in both stores, @simbridge/crypto was imported BEFORE the polyfill — tweetnacl captures its PRNG at module-evaluation time, which would crash keygen at runtime with "no PRNG"; (2) receiver settings.tsx had the same wrong ordering.
+- Fixed the import paths to "../lib/random-polyfill" in both stores and moved the polyfill import above the crypto imports; reordered settings.tsx; added the polyfill as the first import of the app root _layout.tsx as an app-wide safety net.
+- Hardened packages/crypto: generateKeyPair() and encrypt() now draw randomness via randomBytes() (call-time globalThis.crypto lookup) + nacl.scalarMult.base instead of nacl.box.keyPair() (load-time-captured PRNG) — eliminates the whole class of late-polyfill runtime crashes. Ciphertext format and keys unchanged (decrypt-compatible).
+- Verification: reinstalled deps (pnpm 10.34.5 via npm user prefix), tsc --noEmit green for @simbridge/crypto and mobile, scripts/verify-crypto-fix.cjs PASSES (Scenario A: Node round-trip + interop with nacl.box.keyPair; Scenario B: RN-like load without global crypto + late polyfill install — old code would throw, new code works), turbo build 4/4 successful.
+
+Stage Summary:
+- Metro resolution error fixed; user should restart Metro with cleared cache (npx expo start -c) to re-bundle.
+- No schema/DTO/API changes; no migration needed for already-registered devices.

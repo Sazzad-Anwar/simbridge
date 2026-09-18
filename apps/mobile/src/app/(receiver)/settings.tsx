@@ -7,8 +7,9 @@ import { Badge, Button, Card, Muted, Row, Screen, Title } from "@/components/ui"
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
 import { secrets } from "@/lib/storage";
-import { publicKeyFromSecret } from "@simbridge/crypto";
+// Polyfill before @simbridge/crypto (tweetnacl captures its PRNG at module load).
 import "@/lib/random-polyfill";
+import { publicKeyFromSecret } from "@simbridge/crypto";
 
 export default function ReceiverSettings() {
   const device = useDeviceStore((s) => s.device);
