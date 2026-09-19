@@ -20,6 +20,7 @@ export default function RootLayout() {
   useEffect(() => {
     void hydrate();
     void initNotifications();
+    console.log("[sbr] mount registered=", registered, "role=", role);
   }, [hydrate]);
 
   // Realtime wiring once the device is registered.
@@ -34,6 +35,7 @@ export default function RootLayout() {
       void useMessageStore.getState().syncAll();
       if (role === "sender") {
         void useMessageStore.getState().drainNativeOutbox();
+        void useMessageStore.getState().reconcileInbox();
       }
     }, 30_000);
     return () => {
@@ -51,10 +53,13 @@ export default function RootLayout() {
       const device = useDeviceStore.getState();
       await smsBridge.requestSmsPermissions().catch(() => undefined);
       await device.refreshSims().catch(() => undefined);
+      // Ensure pairs are loaded before drains that need an active receiver key.
+      await device.refreshPairs().catch(() => undefined);
       await smsBridge.startService().catch(() => undefined);
 
       // Forward any SMS that arrived while the JS layer was dead.
       await useMessageStore.getState().drainNativeOutbox().catch(() => undefined);
+      await useMessageStore.getState().reconcileInbox().catch(() => undefined);
 
       unsub = smsBridge.onSmsReceived((sms) => {
         void (async () => {
@@ -78,6 +83,7 @@ export default function RootLayout() {
           await useMessageStore.getState().enqueueSms({
             smsBody: sms.body,
             receiverNumber: sms.originatingAddress,
+            fromName: sms.contactName,
             pairId: active.pairId,
             receiverPublicKey: active.receiverPublicKey,
             clientMsgId: (await import("@/native/sms-bridge")).smsClientMsgId({

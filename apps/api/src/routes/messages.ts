@@ -26,6 +26,8 @@ export const messageRoutes = new Elysia({ prefix: "/messages", tags: ["messages"
           clientMsgId: body.clientMsgId,
           payload: body.payload,
           sim: body.sim,
+          from: body.from,
+          fromName: body.fromName,
         },
       );
       return { ok: true as const, data: result };
@@ -49,6 +51,12 @@ export const messageRoutes = new Elysia({ prefix: "/messages", tags: ["messages"
             phoneNumber: t.Optional(t.String()),
           }),
         ),
+        // Only non-empty: SMS origins can be short codes or alphanumeric
+        // sender IDs (e.g. "GP", "16247"), and the socket path applies no
+        // length floor — keeping REST identical avoids rejecting cold-start
+        // recovery of messages from those senders.
+        from: t.Optional(t.String({ minLength: 1, maxLength: 40 })),
+        fromName: t.Optional(t.String({ minLength: 1, maxLength: 140 })),
       }),
     },
   )

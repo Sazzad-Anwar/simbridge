@@ -39,7 +39,11 @@ object OutboxStore {
       for ((k, v) in entry) obj.put(k, v ?: JSONObject.NULL)
       obj.put("queuedAt", System.currentTimeMillis())
       arr.put(obj)
-      prefs.edit().putString(KEY_ENTRIES, arr.toString()).apply()
+      // commit() (not apply()): the receiver's process is a background priority
+      // process that the OS can kill as soon as onReceive() returns, so the
+      // write must be durably on disk before we hand control back. apply() is
+      // asynchronous and can lose the SMS entirely.
+      prefs.edit().putString(KEY_ENTRIES, arr.toString()).commit()
       SmsEventHub.emit("onOutboxChanged", mapOf("size" to arr.length()))
     } catch (_: Exception) {
       // Never crash the SMS pipeline on storage failure.
@@ -58,7 +62,7 @@ object OutboxStore {
   @Synchronized
   fun clear(context: Context) {
     try {
-      prefs(context).edit().remove(KEY_ENTRIES).apply()
+      prefs(context).edit().remove(KEY_ENTRIES).commit()
     } catch (_: Exception) {
     }
   }

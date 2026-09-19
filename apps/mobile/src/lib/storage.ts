@@ -21,6 +21,7 @@ const STORE_KEYS = {
   messages: "simbridge.messages.v1", // MessageDTO[] cache (receiver inbox)
   lastSeq: "simbridge.lastSeq.v1", // Record<pairId, number>
   routing: "simbridge.routing.v1", // Record<receiverNumber, subscriptionId>
+  smsWatermark: "simbridge.smsWatermark.v1", // last processed inbox-scan timestamp
 } as const;
 
 export interface StoredProfile {
@@ -32,6 +33,8 @@ export interface OutboxEntry {
   clientMsgId: string;
   pairId: string;
   receiverNumber: string;
+  /** Contact name of the originating SMS sender (best-effort; optional). */
+  fromName?: string;
   smsBody: string; // plaintext kept ONLY in device-local encrypted storage
   sim: { subscriptionId: number; carrierName?: string; slotIndex?: number; displayName?: string };
   status: "pending" | "sent" | "delivered" | "failed";
@@ -107,6 +110,9 @@ export const storage = {
 
   getRouting: () => getJSON<Record<string, number>>(STORE_KEYS.routing, {}),
   setRouting: (r: Record<string, number>) => setJSON(STORE_KEYS.routing, r),
+
+  getSmsWatermark: () => getJSON<number | null>(STORE_KEYS.smsWatermark, null),
+  setSmsWatermark: (ts: number) => setJSON(STORE_KEYS.smsWatermark, ts),
 
   async wipe(): Promise<void> {
     await Promise.all([

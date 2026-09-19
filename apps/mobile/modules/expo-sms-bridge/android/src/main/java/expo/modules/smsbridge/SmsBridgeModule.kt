@@ -12,6 +12,7 @@ import expo.modules.kotlin.modules.ModuleDefinition
  *   - startForegroundService()/stopForegroundService(): keep-alive service
  *   - isServiceRunning()/hasSmsPermissions(): diagnostics
  *   - getOutbox()/clearOutbox(): device-local ENCRYPTED pending messages
+ *   - readRecentInbox(afterTimestamp, limit): OS SMS inbox scan (recovery path)
  * Events:
  *   - onSmsReceived: { body, originatingAddress, timestamp, subscriptionId, ... }
  *   - onConnectivityChanged: { online }
@@ -55,6 +56,15 @@ class SmsBridgeModule : Module() {
       }
       promise.resolve(SimInfoReader.listSims(context))
     }
+
+    AsyncFunction("readRecentInbox", { afterTimestamp: Long, limit: Int? ->
+      val context = appContext.reactContext
+      if (context == null) {
+        emptyList<Map<String, Any?>>()
+      } else {
+        InboxReader.readRecent(context, afterTimestamp, limit ?: 200)
+      }
+    })
 
     AsyncFunction("startForegroundService") { promise: expo.modules.kotlin.Promise ->
       val context = appContext.reactContext

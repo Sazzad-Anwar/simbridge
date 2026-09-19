@@ -16,6 +16,7 @@ export interface SmsReceivedEvent {
   subscriptionId: number;
   simDisplayName?: string;
   simSlotIndex?: number;
+  contactName?: string;
 }
 
 /** An entry from the native encrypted outbox (SmsReceiver persists here first). */
@@ -25,8 +26,18 @@ export interface NativeOutboxEntry {
   timestamp?: number;
   subscriptionId?: number;
   simDisplayName?: string;
+  contactName?: string;
   status?: string;
   queuedAt?: number;
+}
+
+/** An entry from the OS SMS inbox (InboxReader recovery scan). */
+export interface InboxSmsEntry {
+  id: number;
+  originatingAddress?: string;
+  body?: string;
+  timestamp?: number;
+  subscriptionId?: number;
 }
 
 /** Stable multiplatform-safe non-cryptographic hash (FNV-1a 32-bit as hex). */
@@ -83,6 +94,7 @@ interface SmsBridgeFunctions {
   hasSmsPermissions(): boolean;
   getOutbox(): NativeOutboxEntry[];
   clearOutbox(): void;
+  readRecentInbox(afterTimestamp: number, limit: number): Promise<InboxSmsEntry[]>;
 }
 
 type SmsBridgeNativeModule = SmsBridgeFunctions &
@@ -130,11 +142,18 @@ export const smsBridge = {
     native?.clearOutbox();
   },
 
+  /** Scan the OS SMS inbox for messages newer than `afterTimestamp` (recovery). */
+  async readRecentInbox(afterTimestamp: number, limit = 200): Promise<InboxSmsEntry[]> {
+    const entries = (await native?.readRecentInbox(afterTimestamp, limit)) ?? [];
+    return entries.filter((e) => Boolean(e.body?.trim()) && Boolean(e.originatingAddress?.trim()));
+  },
+
   /**
    * Request the runtime permissions the SMS relay needs (RECEIVE_SMS,
-   * READ_SMS, READ_PHONE_STATE, POST_NOTIFICATIONS). On Android 6+ these are
-   * NOT granted at install time — without them SmsReceiver never fires and
-   * listSims() returns an empty array.
+   * READ_SMS, READ_PHONE_STATE) plus READ_CONTACTS for sender-name lookup.
+   * On Android 6+ these are NOT granted at install time — without them
+   * SmsReceiver never fires and listSims() returns an empty array.
+   * Contacts is best-effort: it does not gate the result.
    */
   async requestSmsPermissions(): Promise<boolean> {
     if (Platform.OS !== "android") return false;
@@ -142,10 +161,14 @@ export const smsBridge = {
       PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
       PermissionsAndroid.PERMISSIONS.READ_SMS,
       PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
+      PermissionsAndroid.PERMISSIONS.READ_CONTACTS,
     ];
     try {
       const results = await PermissionsAndroid.requestMultiple(perms);
-      return Object.values(results).every((r) => r === PermissionsAndroid.RESULTS.GRANTED);
+      const smsOk = ["RECEIVE_SMS", "READ_SMS", "READ_PHONE_STATE"].every(
+        (p) => results[p as keyof typeof results] === PermissionsAndroid.RESULTS.GRANTED,
+      );
+      return smsOk;
     } catch {
       return false;
     }

@@ -93,6 +93,10 @@ export interface MessageDTO {
   senderDeviceId: string;
   clientMsgId: string;
   seq: number;
+  /** Originating SMS sender phone number (relayed as-is, still only ever handled as metadata). */
+  from?: string;
+  /** Contact name for the originating SMS sender, resolved on the SIM phone. */
+  fromName?: string;
   payload: EncryptedPayload;
   sim?: {
     subscriptionId: number;
@@ -111,6 +115,8 @@ export interface SendMessageInput {
   clientMsgId: string;
   payload: EncryptedPayload;
   sim?: MessageDTO["sim"];
+  from?: string;
+  fromName?: string;
 }
 
 export interface SendMessageResult {

@@ -27,6 +27,7 @@ export default function SenderPairing() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastRequest, setLastRequest] = useState<CreatePairResult | null>(null);
   const effectiveReceiverId = scannedReceiverId ?? receiverId;
+  const visiblePairs = pairs.filter((p) => p.status !== "revoked");
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -73,7 +74,7 @@ export default function SenderPairing() {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Screen>
       <FlatList
-        data={pairs}
+        data={visiblePairs}
         keyExtractor={(p) => p.pairId}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.accentSoft} />}
         ListHeaderComponent={

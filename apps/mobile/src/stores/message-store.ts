@@ -37,6 +37,7 @@ interface MessageState {
   enqueueSms: (input: {
     smsBody: string;
     receiverNumber: string;
+    fromName?: string;
     pairId: string;
     receiverPublicKey: string;
     sim: OutboxEntry["sim"];
@@ -48,6 +49,9 @@ interface MessageState {
 
   /** Drain the native encrypted outbox (SMS persisted while JS was dead). */
   drainNativeOutbox: () => Promise<void>;
+
+  /** Scan the OS SMS inbox for messages missed while the app was dead, then forward. */
+  reconcileInbox: () => Promise<void>;
 
   /** Step 7 — fetch missed messages for every active pair (lastSeq cursor). */
   syncAll: () => Promise<void>;
@@ -79,7 +83,14 @@ async function deliver(
       }>((cb) =>
         socket.emit(
           "message:new",
-          { pairId: entry.pairId, clientMsgId: entry.clientMsgId, payload, sim: entry.sim },
+          {
+            pairId: entry.pairId,
+            clientMsgId: entry.clientMsgId,
+            payload,
+            sim: entry.sim,
+            from: entry.receiverNumber,
+            fromName: entry.fromName,
+          },
           cb,
         ),
       );
@@ -96,6 +107,8 @@ async function deliver(
       clientMsgId: entry.clientMsgId,
       payload,
       sim: entry.sim,
+      from: entry.receiverNumber,
+      fromName: entry.fromName,
     });
   }
 
@@ -120,7 +133,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ outbox, inbox, lastSeq });
   },
 
-  async enqueueSms({ smsBody, receiverNumber, pairId, receiverPublicKey, sim, clientMsgId = "" }) {
+  async enqueueSms({ smsBody, receiverNumber, fromName, pairId, receiverPublicKey, sim, clientMsgId = "" }) {
     const id = clientMsgId || smsClientMsgId({
       pairId,
       body: smsBody,
@@ -134,6 +147,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       clientMsgId: id,
       pairId,
       receiverNumber,
+      fromName,
       smsBody,
       sim,
       status: "pending",
@@ -242,6 +256,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       await get().enqueueSms({
         smsBody: c.body,
         receiverNumber: c.sender,
+        fromName: c.raw.contactName,
         pairId: active.pairId,
         receiverPublicKey: active.receiverPublicKey,
         clientMsgId: c.clientMsgId,
@@ -258,6 +273,102 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     // The JS outbox is now the authoritative record (it retains sent entries),
     // so the native mirror can be dropped once snapshot has been reconciled.
     smsBridge.clearOutbox();
+  },
+
+  async reconcileInbox() {
+    const { smsBridge } = await import("../native/sms-bridge");
+    let after = await storage.getSmsWatermark();
+    if (after == null) {
+      // First run: never forward pre-existing SMS history — anchor the scan at
+      // "now" and only recover messages that arrive from this point on.
+      after = Date.now();
+      await storage.setSmsWatermark(after);
+    }
+    console.log("[smsbridge] reconcileInbox: after=", after);
+
+    const native = await smsBridge.readRecentInbox(after, 200);
+    console.log("[smsbridge] reconcileInbox: scan returned", native.length);
+    if (native.length === 0) return;
+
+    const { pairs } = useDeviceStore.getState();
+    const active = pairs.find((p) => p.status === "active" && p.receiverPublicKey);
+    if (!active?.receiverPublicKey) return; // no paired receiver yet — keep watermark so we retry
+
+    const existing = await storage.getOutbox();
+    const known = new Set(existing.map((e) => e.clientMsgId));
+
+    const candidates: {
+      body: string;
+      sender: string;
+      clientMsgId: string;
+      timestamp: number;
+      subscriptionId: number;
+    }[] = [];
+    let maxTs = after;
+    for (const raw of native) {
+      if (raw.timestamp != null && raw.timestamp > maxTs) maxTs = raw.timestamp;
+      const body = raw.body?.trim();
+      const sender = raw.originatingAddress?.trim();
+      if (!body || !sender) continue;
+      const clientMsgId = smsClientMsgId({
+        pairId: active.pairId,
+        body,
+        sender,
+        timestamp: raw.timestamp ?? 0,
+        subscriptionId: raw.subscriptionId ?? 0,
+      });
+      if (known.has(clientMsgId)) continue;
+      known.add(clientMsgId);
+      candidates.push({
+        body,
+        sender,
+        clientMsgId,
+        timestamp: raw.timestamp ?? 0,
+        subscriptionId: raw.subscriptionId ?? 0,
+      });
+    }
+
+    if (candidates.length > 0) {
+      try {
+        const { existing: storedDup } = await api.checkExists(
+          active.pairId,
+          candidates.map((c) => c.clientMsgId),
+        );
+        if (storedDup.length > 0) {
+          const storedSet = new Set(storedDup);
+          const kept = candidates.filter((c) => !storedSet.has(c.clientMsgId));
+          console.log(
+            "[smsbridge] reconcileInbox: skipped",
+            candidates.length - kept.length,
+            "already in DB",
+          );
+          candidates.length = 0;
+          candidates.push(...kept);
+        }
+      } catch (err) {
+        console.log("[smsbridge] reconcileInbox: exists pre-check failed", String(err));
+      }
+    }
+
+    let forwarded = 0;
+    for (const c of candidates) {
+      await get().enqueueSms({
+        smsBody: c.body,
+        receiverNumber: c.sender,
+        pairId: active.pairId,
+        receiverPublicKey: active.receiverPublicKey,
+        clientMsgId: c.clientMsgId,
+        sim: {
+          subscriptionId: c.subscriptionId,
+          carrierName: "SIM",
+          displayName: "SIM",
+        },
+      });
+      forwarded++;
+    }
+
+    console.log("[smsbridge] reconcileInbox: forwarded", forwarded, "of", native.length);
+    await storage.setSmsWatermark(maxTs);
   },
 
   async syncAll() {
@@ -347,8 +458,14 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     socket.on("connect", () => {
       void deviceStore.setConnection("online");
-      void deviceStore.refreshPairs();
-      void get().flushOutbox();
+      void deviceStore.refreshPairs().then(() => {
+        const isSender = useDeviceStore.getState().profile?.role === "sender";
+        void get().flushOutbox();
+        if (isSender) {
+          void get().drainNativeOutbox();
+          void get().reconcileInbox();
+        }
+      });
       void get().syncAll();
     });
     socket.on("disconnect", () => {
@@ -419,6 +536,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const role = useDeviceStore.getState().profile?.role;
       if (role === "sender") {
         void get().drainNativeOutbox();
+        void get().reconcileInbox();
       } else {
         void get().syncAll();
       }
@@ -434,7 +552,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         if (online) {
           void get().flushOutbox();
           const role = useDeviceStore.getState().profile?.role;
-          if (role === "sender") void get().drainNativeOutbox();
+          if (role === "sender") {
+            void get().drainNativeOutbox();
+            void get().reconcileInbox();
+          }
         }
       }),
     );
@@ -442,7 +563,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     wired = true;
     if (socket.connected) {
       await deviceStore.setConnection("online");
+      await deviceStore.refreshPairs();
       void get().flushOutbox();
+      const role = useDeviceStore.getState().profile?.role;
+      if (role === "sender") {
+        void get().drainNativeOutbox();
+        void get().reconcileInbox();
+      }
       void get().syncAll();
     }
   },

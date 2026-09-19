@@ -3,8 +3,9 @@
  * one-tap OTP copy.
  */
 import React, { useEffect, useState } from "react";
-import { Alert, Clipboard as RNClipboard, ScrollView, Text } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { Alert, ScrollView, Text } from "react-native";
+import * as Clipboard from "expo-clipboard";
+import { Tabs, useLocalSearchParams } from "expo-router";
 import { Badge, Button, Card, Muted, Row, Screen, Spinner, StatusPill, Title } from "@/components/ui";
 import { colors } from "@/constants/theme";
 import { useMessageStore } from "@/stores/message-store";
@@ -13,14 +14,14 @@ export default function MessageDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const entry = useMessageStore((s) => s.inbox.find((m) => m.messageId === id));
   const decryptEntry = useMessageStore((s) => s.decryptEntry);
-  const [text, setText] = useState<string | null>(entry?.decrypted ?? null);
   const [copied, setCopied] = useState(false);
+  const text = entry?.decrypted;
 
   useEffect(() => {
-    if (entry && !text) {
-      void decryptEntry(entry).then(setText);
+    if (entry && !entry.decrypted) {
+      void decryptEntry(entry);
     }
-  }, [entry, text, decryptEntry]);
+  }, [entry, decryptEntry]);
 
   if (!entry) {
     return (
@@ -33,22 +34,31 @@ export default function MessageDetail() {
   }
 
   const copy = (value: string, what: string) => {
-    RNClipboard.setString(value);
+    void Clipboard.setStringAsync(value);
     setCopied(true);
     Alert.alert("Copied", `${what} copied to clipboard.`);
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const senderName = entry.fromName ?? entry.from;
+  const isSenderId = !!entry.from && /[a-zA-Z]/.test(entry.from);
   const otpMatch = text?.match(/\b(\d{4,8})\b/);
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: 16, gap: 14 }}>
-      <Card>
-        <Row style={{ justifyContent: "space-between" }}>
-          <Title>Message</Title>
-          <StatusPill status={entry.status} />
-        </Row>
-        {text ? (
+    <>
+      <Tabs.Screen options={{ title: senderName ?? "Message" }} />
+      <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: 16, gap: 14 }}>
+        <Card>
+          <Row style={{ justifyContent: "space-between" }}>
+            <Title numberOfLines={1} style={{ flexShrink: 1 }}>
+              {senderName ?? "Message"}
+            </Title>
+            <StatusPill status={entry.status} />
+          </Row>
+          {entry.from && entry.from !== senderName ? (
+            <Muted style={{ fontSize: 13 }}>{entry.from}</Muted>
+          ) : null}
+          {text ? (
           <Text style={{ color: colors.text, fontSize: 16, lineHeight: 24 }}>{text}</Text>
         ) : (
           <Spinner />
@@ -73,6 +83,7 @@ export default function MessageDetail() {
         <Row style={{ flexWrap: "wrap" }}>
           {entry.sim?.displayName ? <Badge label={entry.sim.displayName} /> : null}
           {entry.sim?.carrierName ? <Badge label={entry.sim.carrierName} tone="green" /> : null}
+          {isSenderId ? <Badge label="Sender ID" tone="yellow" /> : null}
           <Badge label={`seq ${entry.seq}`} />
         </Row>
       </Card>
@@ -86,5 +97,6 @@ export default function MessageDetail() {
         </Muted>
       </Card>
     </ScrollView>
+    </>
   );
 }

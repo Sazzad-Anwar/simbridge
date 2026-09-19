@@ -23,6 +23,7 @@
         "android.permission.READ_SMS",
         "android.permission.SEND_SMS",
         "android.permission.READ_PHONE_STATE",
+        "android.permission.READ_CONTACTS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING",
         "android.permission.POST_NOTIFICATIONS",
@@ -33,6 +34,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withCleartextTraffic",
       [
         "expo-splash-screen",
         {

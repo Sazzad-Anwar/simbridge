@@ -44,7 +44,9 @@ export default function SenderSettings() {
       if (ok) {
         await smsBridge.startService().catch(() => undefined);
         setServiceRunning(true);
+        await useDeviceStore.getState().refreshPairs().catch(() => undefined);
         await useMessageStore.getState().drainNativeOutbox().catch(() => undefined);
+        await useMessageStore.getState().reconcileInbox().catch(() => undefined);
         Alert.alert("Permissions granted", "SMS relay is now active on this device.");
       } else {
         Alert.alert("Permissions required", "SMS/phone permissions are needed to detect and relay SMS.");
@@ -92,6 +94,23 @@ export default function SenderSettings() {
             Native module unavailable in Expo Go — build with `expo run:android`.
           </Muted>
         ) : null}
+      </Card>
+
+      <Card>
+        <Title>Background relay on MIUI</Title>
+        <Muted>
+          Xiaomi can stop the background service after the app is swiped from
+          recents and drop incoming SMS broadcasts entirely. For reliable relay,
+          enable Autostart and remove the battery restriction:
+        </Muted>
+        <Muted style={{ fontSize: 12 }}>
+          Settings → Apps → Manage apps → SIMBridge → Autostart ON, and add it to
+          Settings → Battery → No restrictions.
+        </Muted>
+        <Muted style={{ fontSize: 11, color: colors.yellow }}>
+          Note: messages missed while the app was not running are recovered from
+          the SMS inbox on the next open or Resync, so nothing is lost.
+        </Muted>
       </Card>
 
       <Card>

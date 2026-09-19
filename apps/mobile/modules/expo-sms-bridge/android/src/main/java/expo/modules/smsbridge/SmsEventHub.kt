@@ -29,7 +29,8 @@ object SmsEventHub {
     timestamp: Long,
     subscriptionId: Int,
     simDisplayName: String?,
-    simSlotIndex: Int?
+    simSlotIndex: Int?,
+    contactName: String?
   ) {
     emit(
       "onSmsReceived",
@@ -39,7 +40,8 @@ object SmsEventHub {
         "timestamp" to timestamp,
         "subscriptionId" to subscriptionId,
         "simDisplayName" to simDisplayName,
-        "simSlotIndex" to simSlotIndex
+        "simSlotIndex" to simSlotIndex,
+        "contactName" to contactName
       )
     )
   }

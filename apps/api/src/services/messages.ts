@@ -42,6 +42,8 @@ export function toMessageDTO(doc: MessageDoc): MessageDTO {
     senderDeviceId: doc.senderDeviceId,
     clientMsgId: doc.clientMsgId,
     seq: doc.seq,
+    from: doc.from,
+    fromName: doc.fromName,
     payload: {
       ciphertext,
       ephemPublicKey,
@@ -110,32 +112,60 @@ export async function sendMessage(
   ).lean<{ seq: number } | null>();
   const seq = updatedPair?.seq ?? 1;
 
-  const doc = await Message.create({
-    messageId: newId("msg"),
-    pairId: pair.pairId,
-    roomId: pair.roomId,
-    senderDeviceId: device.deviceId,
-    receiverDeviceId: pair.receiverDeviceId,
-    clientMsgId: input.clientMsgId,
-    seq,
-    payload: {
-      ciphertext: input.payload.ciphertext,
-      ephemPublicKey: input.payload.ephemPublicKey,
-      nonce: input.payload.nonce,
-      scheme: input.payload.scheme,
-    },
-    sim: input.sim
-      ? {
-          subscriptionId: input.sim.subscriptionId,
-          carrierName: input.sim.carrierName,
-          slotIndex: input.sim.slotIndex,
-          displayName: input.sim.displayName,
-          phoneNumber: input.sim.phoneNumber,
-        }
-      : undefined,
-    status: "sent",
-    expiresAt: new Date(Date.now() + env.messageTtlDays * 86_400_000),
-  });
+  let doc;
+  try {
+    doc = await Message.create({
+      messageId: newId("msg"),
+      pairId: pair.pairId,
+      roomId: pair.roomId,
+      senderDeviceId: device.deviceId,
+      receiverDeviceId: pair.receiverDeviceId,
+      clientMsgId: input.clientMsgId,
+      seq,
+      from: input.from,
+      fromName: input.fromName,
+      payload: {
+        ciphertext: input.payload.ciphertext,
+        ephemPublicKey: input.payload.ephemPublicKey,
+        nonce: input.payload.nonce,
+        scheme: input.payload.scheme,
+      },
+      sim: input.sim
+        ? {
+            subscriptionId: input.sim.subscriptionId,
+            carrierName: input.sim.carrierName,
+            slotIndex: input.sim.slotIndex,
+            displayName: input.sim.displayName,
+            phoneNumber: input.sim.phoneNumber,
+          }
+        : undefined,
+      status: "sent",
+      expiresAt: new Date(Date.now() + env.messageTtlDays * 86_400_000),
+    });
+  } catch (err) {
+    // Concurrent offline-retry burst: another attempt won the unique index
+    // (pairId, clientMsgId) race — treat as deduplicated instead of a 500.
+    if (
+      err &&
+      typeof err === "object" &&
+      (err as { code?: number }).code === 11000
+    ) {
+      const existing = await Message.findOne({
+        pairId: input.pairId,
+        clientMsgId: input.clientMsgId,
+      }).lean<MessageDoc>();
+      if (existing) {
+        return {
+          messageId: existing.messageId,
+          pairId: existing.pairId,
+          seq: existing.seq,
+          status: existing.status,
+          deduplicated: true,
+        };
+      }
+    }
+    throw err;
+  }
 
   const dto = toMessageDTO(doc.toObject() as MessageDoc);
 

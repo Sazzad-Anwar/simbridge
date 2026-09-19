@@ -35,6 +35,9 @@ class SmsReceiver : android.content.BroadcastReceiver() {
       val timestamp = sms.timestampMillis
 
       // 1) Persist to the device-local encrypted outbox FIRST (crash safety).
+      //    This must happen before any best-effort work (contact lookup) so a
+      //    slow/failing contacts query can never prevent the SMS from being
+      //    durably captured after onReceive() returns.
       OutboxStore.add(
         context,
         mapOf(
@@ -47,14 +50,18 @@ class SmsReceiver : android.content.BroadcastReceiver() {
         )
       )
 
-      // 2) Notify the JS layer for immediate forwarding.
+      // 2) Best-effort contact name for display (never blocks the durable write).
+      val contactName = ContactNameResolver.resolve(context, originating)
+
+      // 3) Notify the JS layer for immediate forwarding.
       SmsEventHub.emitSms(
         body = body,
         originatingAddress = originating,
         timestamp = timestamp,
         subscriptionId = subscriptionId,
         simDisplayName = simInfo?.get("displayName") as? String,
-        simSlotIndex = (simInfo?.get("slotIndex") as? Number)?.toInt()
+        simSlotIndex = (simInfo?.get("slotIndex") as? Number)?.toInt(),
+        contactName = contactName
       )
     }
   }

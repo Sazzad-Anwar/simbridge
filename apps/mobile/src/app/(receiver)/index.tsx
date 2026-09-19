@@ -75,28 +75,37 @@ export default function Inbox() {
             </Row>
           </Card>
         }
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => router.push(`/(receiver)/message/${item.messageId}`)}
-            accessibilityRole="button"
-            accessibilityLabel={`${item.sim?.displayName ?? item.senderDeviceId.slice(0, 14)}, ${item.status}`}
-          >
-            <Card>
-              <Row style={{ justifyContent: "space-between" }}>
-                <Title style={{ fontSize: 14 }}>
-                  {item.sim?.displayName ?? item.senderDeviceId.slice(0, 14)}
-                </Title>
-                <StatusPill status={item.status} />
-              </Row>
-              <Muted numberOfLines={1}>
-                {item.decrypted ?? "Tap to decrypt locally (key never leaves this device)"}
-              </Muted>
-              <Row style={{ justifyContent: "flex-end" }}>
-                <Muted style={{ fontSize: 11 }}>{new Date(item.createdAt).toLocaleString()}</Muted>
-              </Row>
-            </Card>
-          </Pressable>
-        )}
+        renderItem={({ item }) => {
+          const title = item.fromName ?? item.from ?? item.sim?.displayName;
+          return (
+            <Pressable
+              onPress={() => router.push(`/(receiver)/message/${item.messageId}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`${title ?? item.senderDeviceId.slice(0, 14)}, ${item.status}`}
+            >
+              <Card>
+                <Row style={{ justifyContent: "space-between" }}>
+                  <Title numberOfLines={1} style={{ fontSize: 14, flexShrink: 1 }}>
+                    {title ?? item.senderDeviceId.slice(0, 14)}
+                  </Title>
+                  <StatusPill status={item.status} />
+                </Row>
+                <Muted numberOfLines={1}>
+                  {item.decrypted ?? "Tap to decrypt locally (key never leaves this device)"}
+                </Muted>
+                {item.sim?.displayName ? (
+                  <Muted numberOfLines={1} style={{ fontSize: 11 }}>
+                    {item.sim.displayName}
+                    {item.sim.carrierName ? ` · ${item.sim.carrierName}` : ""}
+                  </Muted>
+                ) : null}
+                <Row style={{ justifyContent: "flex-end" }}>
+                  <Muted style={{ fontSize: 11 }}>{new Date(item.createdAt).toLocaleString()}</Muted>
+                </Row>
+              </Card>
+            </Pressable>
+          );
+        }}
         ListEmptyComponent={
           <Empty
             icon="📥"

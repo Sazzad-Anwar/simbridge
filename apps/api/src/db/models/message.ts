@@ -10,6 +10,10 @@ export interface MessageDoc {
   /** Client-generated id for at-least-once + idempotent delivery. */
   clientMsgId: string;
   seq: number;
+  /** Originating SMS sender phone number. */
+  from?: string;
+  /** Contact name for the originating SMS sender (resolved on the SIM phone). */
+  fromName?: string;
   payload: {
     ciphertext: string;
     ephemPublicKey: string;
@@ -41,6 +45,8 @@ const MessageSchema = new Schema<MessageDoc>(
     receiverDeviceId: { type: String, required: true },
     clientMsgId: { type: String, required: true },
     seq: { type: Number, required: true },
+    from: { type: String },
+    fromName: { type: String },
     payload: {
       ciphertext: { type: String, required: true },
       ephemPublicKey: { type: String, required: true },

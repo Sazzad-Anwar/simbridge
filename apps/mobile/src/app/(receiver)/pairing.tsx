@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 export default function ReceiverPairing() {
   const pairs = useDeviceStore((s) => s.pairs);
   const refreshPairs = useDeviceStore((s) => s.refreshPairs);
+  const visiblePairs = pairs.filter((p) => p.status !== "revoked");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +43,7 @@ export default function ReceiverPairing() {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Screen>
         <FlatList
-          data={pairs}
+          data={visiblePairs}
           keyExtractor={(p) => p.pairId}
           contentContainerStyle={{ gap: 10, paddingBottom: 24 }}
           refreshControl={

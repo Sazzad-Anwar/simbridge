@@ -60,9 +60,21 @@ export default function SimsScreen() {
     setBusy(true);
     try {
       await smsBridge.requestSmsPermissions();
-      const nativeSims = await smsBridge.listSims();
-      await refreshSims(nativeSims);
+      await useDeviceStore.getState().refreshPairs();
+      const queued = smsBridge.getOutbox().length;
       await useMessageStore.getState().drainNativeOutbox();
+      const watermark = (await storage.getSmsWatermark()) ?? Date.now();
+      const inbox = (await smsBridge.readRecentInbox(watermark, 200)).length;
+      await useMessageStore.getState().reconcileInbox();
+      await refreshSims();
+      if (queued > 0 || inbox > 0) {
+        Alert.alert(
+          "Resync complete",
+          `Checked ${queued} queued + ${inbox} inbox SMS. Any missed messages were forwarded to the receiver.`,
+        );
+      } else {
+        Alert.alert("Resync complete", "No pending SMS to forward.");
+      }
     } finally {
       setBusy(false);
     }

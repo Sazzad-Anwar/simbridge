@@ -1,4 +1,5 @@
 import { Circle, Path, Svg } from "react-native-svg";
+import { View } from "react-native";
 import type { ColorValue } from "react-native";
 import { colors } from "@/constants/theme";
 
@@ -90,7 +91,22 @@ export function Icon({
 }
 
 export function tabIcon(name: IconName) {
-  return function TabIcon({ color }: { color: ColorValue }) {
-    return <Icon name={name} color={typeof color === "string" ? color : colors.text} />;
+  return function TabIcon({ color, focused }: { color: ColorValue; focused?: boolean }) {
+    return (
+      <View
+        style={{
+          width: 46,
+          height: 28,
+          borderRadius: 14,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: focused ? "#2A2244" : "transparent",
+          borderWidth: 1,
+          borderColor: focused ? colors.accent : "transparent",
+        }}
+      >
+        <Icon name={name} color={typeof color === "string" ? color : colors.text} />
+      </View>
+    );
   };
 }

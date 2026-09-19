@@ -70,8 +70,8 @@ export default function LogsScreen() {
               <StatusPill status={item.status} />
             </Row>
             <Row style={{ justifyContent: "space-between" }}>
-              <Muted style={{ fontSize: 11 }}>
-                {item.sim?.displayName ?? "SIM"} → {item.receiverNumber}
+              <Muted style={{ fontSize: 11 }} numberOfLines={1}>
+                From {item.fromName ?? item.receiverNumber} · via {item.sim?.displayName ?? "SIM"}
               </Muted>
               <Muted style={{ fontSize: 11 }}>{new Date(item.createdAt).toLocaleTimeString()}</Muted>
             </Row>
