@@ -3,8 +3,8 @@ name: Android Release APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    tags: ["v*"]
+    branches: [build]
+    tags: ['v*']
 
 concurrency:
   group: android-release-${{ github.ref }}
@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 60
 
     env:
-      EXPO_NO_TELEMETRY: "1"
+      EXPO_NO_TELEMETRY: '1'
       # Optional: set a repository variable to bake a backend URL into the APK.
       # If unset, the app falls back to runtime detection / in-app server setting.
       EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
@@ -85,7 +85,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: SIMBridge-release-apk
+          name: SIMBridge
           path: artifacts/*.apk
           if-no-files-found: error
           retention-days: 30
