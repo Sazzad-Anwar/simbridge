@@ -23,10 +23,6 @@
     "mongoose": "^8.16.0",
     "socket.io": "^4.8.1"
   },
-  "optionalDependencies": {
-    "@socket.io/redis-adapter": "^8.3.0",
-    "ioredis": "^5.6.0"
-  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "socket.io-client": "^4.8.1",

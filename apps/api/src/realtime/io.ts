@@ -35,7 +35,7 @@ export function tryGetIo(): SimBridgeServer | null {
   return io;
 }
 
-// ---- Presence tracking (in-memory; Redis adapter covers multi-instance) ----
+// ---- Presence tracking (in-memory) ----
 const connectedDevices = new Map<string, number>();
 
 /** Returns true if this socket is the first connection for the device. */

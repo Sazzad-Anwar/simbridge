@@ -18,23 +18,6 @@ import type { SimBridgeServer } from "./realtime/io.js";
 import { setupRealtime } from "./realtime/socket.js";
 import { startWorkers } from "./workers/index.js";
 
-async function maybeAttachRedisAdapter(io: SimBridgeServer): Promise<void> {
-  if (!env.redisUrl) return;
-  try {
-    const [{ createAdapter }, redisModule] = await Promise.all([
-      import("@socket.io/redis-adapter"),
-      import("ioredis"),
-    ]);
-    const RedisCtor = redisModule.default as unknown as new (url: string) => import("ioredis").Redis;
-    const pub = new RedisCtor(env.redisUrl);
-    const sub = new RedisCtor(env.redisUrl);
-    io.adapter(createAdapter(pub, sub));
-    logger.info("Socket.IO Redis adapter enabled (multi-instance ready)");
-  } catch (err) {
-    logger.warn("Redis adapter unavailable; running single-instance", { err: String(err) });
-  }
-}
-
 async function main(): Promise<void> {
   logger.info("SIMBridge API starting…", { version: env.version, node: process.version });
   await connectMongo();
@@ -57,7 +40,6 @@ async function main(): Promise<void> {
     pingTimeout: 25_000,
   });
 
-  await maybeAttachRedisAdapter(io);
   setIo(io);
   setupRealtime(io);
   startWorkers(io);

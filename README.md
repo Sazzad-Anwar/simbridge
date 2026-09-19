@@ -58,7 +58,6 @@ Covers: registration → pairing → real-time delivery → E2E decrypt → acks
 | `JWT_SECRET` | dev value | Change in production |
 | `MESSAGE_TTL_DAYS` | `7` | MongoDB TTL auto-purge of old messages |
 | `PAIRING_CODE_TTL_MINUTES` | `10` | 6-digit pairing code lifetime |
-| `REDIS_URL` | *(empty)* | Optional — enables Socket.IO Redis adapter + Redis rate limiting for multi-instance deployments |
 | `PUSH_SERVICE_URL` | *(empty)* | Optional FCM/APNs relay for background pushes |
 
 ## Feature flow (implemented)
@@ -76,7 +75,7 @@ Covers: registration → pairing → real-time delivery → E2E decrypt → acks
 - **End-to-end encryption** — hybrid ECIES: ephemeral X25519 + XSalsa20-Poly1305 (`tweetnacl.box`). The backend stores and relays `{ ciphertext, ephemPublicKey, nonce }` blobs only — **it never sees plaintext**.
 - **Device-bound keys** — mobile keys live in the Android Keystore via `expo-secure-store`; sender outbox plaintext never leaves the device.
 - **JWT auth** on every REST route (Bearer) and every Socket.IO handshake.
-- **Rate limiting** per IP+bucket (Redis-backed when `REDIS_URL` is set).
+- **Rate limiting** per IP+bucket.
 - **Audit logs** with 30-day TTL; **message TTL** auto-purge; pairing codes expire in 10 minutes.
 - **Validation** on every route body via TypeBox schemas + Swagger documentation.
 
@@ -95,7 +94,7 @@ pnpm start          # or: expo start
 
 ## Production notes
 
-- Stateless API + optional Redis adapter → horizontal scaling of Socket.IO.
+- Stateless API → horizontal scaling of Socket.IO.
 - Docker-compose included (`mongo` + `mongo-express` under the `ui` profile).
 - `pnpm build` / `pnpm typecheck` run across all workspaces via Turbo.
 - Worker services handle stale-device cleanup, delivery retries and pairing-code purges.

@@ -52,7 +52,6 @@ export const env = {
   auditTtlDays: num("AUDIT_TTL_DAYS", 30),
   rateLimitWindowMs: num("RATE_LIMIT_WINDOW_MS", 60_000),
   rateLimitMax: num("RATE_LIMIT_MAX", 240),
-  redisUrl: str("REDIS_URL", ""),
   corsOrigin: str("CORS_ORIGIN", "*"),
   logLevel: str("LOG_LEVEL", "info"),
   version: "0.1.0",

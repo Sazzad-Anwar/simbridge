@@ -1,5 +1,4 @@
 import { env } from "../config/env.js";
-import { logger } from "../utils/logger.js";
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -11,7 +10,7 @@ interface Store {
   hit(key: string, windowMs: number, max: number): Promise<RateLimitResult>;
 }
 
-/** In-memory sliding-window counters (default for local development). */
+/** In-memory sliding-window counters. */
 class MemoryStore implements Store {
   private buckets = new Map<string, { count: number; resetAt: number }>();
   private lastSweep = Date.now();
@@ -41,51 +40,13 @@ class MemoryStore implements Store {
   }
 }
 
-/** Redis-backed fixed-window counters (enabled when REDIS_URL is set). */
-class RedisStore implements Store {
-  constructor(private client: { incr(key: string): Promise<number>; pexpire(key: string, ms: number): Promise<number> }) {}
+const store: Store = new MemoryStore();
 
-  async hit(key: string, windowMs: number, max: number): Promise<RateLimitResult> {
-    const window = Math.floor(Date.now() / windowMs);
-    const redisKey = `simbridge:rl:${key}:${window}`;
-    const count = await this.client.incr(redisKey);
-    if (count === 1) await this.client.pexpire(redisKey, windowMs * 2);
-    const resetMs = (window + 1) * windowMs - Date.now();
-    return { allowed: count <= max, remaining: Math.max(0, max - count), resetMs };
-  }
-}
-
-let store: Store | null = null;
-
-async function getStore(): Promise<Store> {
-  if (store) return store;
-  if (env.redisUrl) {
-    try {
-      const redisModule = await import("ioredis");
-      const RedisCtor = redisModule.default as unknown as new (
-        url: string,
-        opts?: Record<string, unknown>,
-      ) => { incr(key: string): Promise<number>; pexpire(key: string, ms: number): Promise<number> };
-      const client = new RedisCtor(env.redisUrl, { maxRetriesPerRequest: 1 });
-      store = new RedisStore(client);
-      logger.info("Rate limiter using Redis");
-      return store;
-    } catch (err) {
-      logger.warn("Redis unavailable for rate limiter; falling back to memory", {
-        err: String(err),
-      });
-    }
-  }
-  store = new MemoryStore();
-  return store;
-}
-
-/** Sliding/fixed window rate limit, keyed by ip + route bucket. */
+/** Fixed-window rate limit, keyed by ip + route bucket. */
 export async function checkRateLimit(
   key: string,
   windowMs = env.rateLimitWindowMs,
   max = env.rateLimitMax,
 ): Promise<RateLimitResult> {
-  const s = await getStore();
-  return s.hit(key, windowMs, max);
+  return store.hit(key, windowMs, max);
 }
