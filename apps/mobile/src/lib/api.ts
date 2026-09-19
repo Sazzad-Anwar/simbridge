@@ -35,6 +35,9 @@ export function setCustomServerUrl(url: string | null) {
 // LAN IP of the dev machine (the Mac the backend runs on).
 const DEVICE_DEFAULT_HOST = '192.168.0.186'
 
+// Hosted backend (production/release builds without EXPO_PUBLIC_API_URL).
+const PRODUCTION_API_URL = 'https://simbridge-m2ah.onrender.com'
+
 function resolveServerUrl(): string {
   if (customServerUrl) return customServerUrl
 
@@ -64,6 +67,8 @@ function resolveServerUrl(): string {
 
   // Real Android device: call the dev machine's LAN IP directly so the phone
   // can reach the backend on port 3000 over the network (no emulator alias).
+  // In release builds, fall back to the hosted backend.
+  if (!__DEV__) return PRODUCTION_API_URL
   const defaultHost = Platform.OS === 'android' ? DEVICE_DEFAULT_HOST : 'localhost'
   return `http://${defaultHost}:${API_PORT}`
 }
