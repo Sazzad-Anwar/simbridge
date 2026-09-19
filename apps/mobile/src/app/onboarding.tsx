@@ -7,7 +7,7 @@
  * EXPO_PUBLIC_API_URL), see src/lib/api.ts. No user input needed.
  */
 import React, { useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
+import { Image, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { Button, Card, Input, Muted, Row, Screen, Title } from "@/components/ui";
 import { colors } from "@/constants/theme";
@@ -54,9 +54,7 @@ export default function Onboarding() {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Screen style={{ justifyContent: "center", gap: 18 }}>
       <Row>
-        <View style={styles.logo}>
-          <Text style={{ fontSize: 26 }}>🔗</Text>
-        </View>
+        <Image source={require("../../assets/images/logo.png")} style={styles.logo} />
         <View style={{ flex: 1 }}>
           <Text style={styles.brand}>SIMBridge</Text>
           <Muted>Your SIM. Your messages. Anywhere.</Muted>
@@ -112,9 +110,6 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: "#2A2244",
-    alignItems: "center",
-    justifyContent: "center",
   },
   brand: { color: colors.text, fontSize: 24, fontWeight: "800", letterSpacing: -0.5 },
   chip: {
