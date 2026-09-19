@@ -22,6 +22,24 @@ import { smsClientMsgId } from "../native/sms-bridge";
 let wired = false;
 let unsubFns: Array<() => void> = [];
 
+/**
+ * Recovery work (native-outbox drain + OS-inbox reconciliation) runs from
+ * several triggers — mount, socket reconnect, focus, retry timer — and shares
+ * the JS outbox and the native outbox. Letting two runs overlap can
+ * double-enqueue a message or clear the native mirror mid-scan, so every pass
+ * is serialized through a single chain.
+ */
+let recoveryChain: Promise<unknown> = Promise.resolve();
+
+function serializeRecovery<T>(task: () => Promise<T>): Promise<T> {
+  const run = recoveryChain.then(task, task);
+  recoveryChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export interface InboxEntry extends MessageDTO {
   decrypted?: string;
 }
@@ -195,180 +213,184 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   async drainNativeOutbox() {
-    const { smsBridge } = await import("../native/sms-bridge");
-    const native = smsBridge.getOutbox();
-    if (native.length === 0) return;
-    console.log("[smsbridge] drain: got", native.length, "native entries");
+    return serializeRecovery(async () => {
+      const { smsBridge } = await import("../native/sms-bridge");
+      const native = smsBridge.getOutbox();
+      if (native.length === 0) return;
+      console.log("[smsbridge] drain: got", native.length, "native entries");
 
-    const { pairs } = useDeviceStore.getState();
-    const active = pairs.find((p) => p.status === "active" && p.receiverPublicKey);
-    if (!active?.receiverPublicKey) return; // no paired receiver yet — keep native entries
+      const { pairs } = useDeviceStore.getState();
+      const active = pairs.find((p) => p.status === "active" && p.receiverPublicKey);
+      if (!active?.receiverPublicKey) return; // no paired receiver yet — keep native entries
 
-    const existing = await storage.getOutbox();
-    const known = new Set(existing.map((e) => e.clientMsgId));
+      const existing = await storage.getOutbox();
+      const known = new Set(existing.map((e) => e.clientMsgId));
 
-    const candidates: {
-      body: string;
-      sender: string;
-      clientMsgId: string;
-      raw: (typeof native)[number];
-    }[] = [];
-    for (const raw of native) {
-      const body = raw.body?.trim();
-      const sender = raw.originatingAddress?.trim();
-      if (!body || !sender) continue;
-      const clientMsgId = smsClientMsgId({
-        pairId: active.pairId,
-        body,
-        sender,
-        timestamp: raw.timestamp ?? 0,
-        subscriptionId: raw.subscriptionId,
-      });
-      if (known.has(clientMsgId)) continue;
-      known.add(clientMsgId);
-      candidates.push({ body, sender, clientMsgId, raw });
-    }
-
-    if (candidates.length > 0) {
-      try {
-        const { existing: stored } = await api.checkExists(
-          active.pairId,
-          candidates.map((c) => c.clientMsgId),
-        );
-        if (stored.length > 0) {
-          const storedSet = new Set(stored);
-          const kept = candidates.filter((c) => !storedSet.has(c.clientMsgId));
-          console.log(
-            "[smsbridge] drain: skipped",
-            candidates.length - kept.length,
-            "already in DB",
-          );
-          candidates.length = 0;
-          candidates.push(...kept);
-        }
-      } catch (err) {
-        console.log("[smsbridge] drain: exists pre-check failed", String(err));
+      const candidates: {
+        body: string;
+        sender: string;
+        clientMsgId: string;
+        raw: (typeof native)[number];
+      }[] = [];
+      for (const raw of native) {
+        const body = raw.body?.trim();
+        const sender = raw.originatingAddress?.trim();
+        if (!body || !sender) continue;
+        const clientMsgId = smsClientMsgId({
+          pairId: active.pairId,
+          body,
+          sender,
+          timestamp: raw.timestamp ?? 0,
+          subscriptionId: raw.subscriptionId,
+        });
+        if (known.has(clientMsgId)) continue;
+        known.add(clientMsgId);
+        candidates.push({ body, sender, clientMsgId, raw });
       }
-    }
 
-    let forwarded = 0;
-    for (const c of candidates) {
-      await get().enqueueSms({
-        smsBody: c.body,
-        receiverNumber: c.sender,
-        fromName: c.raw.contactName,
-        pairId: active.pairId,
-        receiverPublicKey: active.receiverPublicKey,
-        clientMsgId: c.clientMsgId,
-        sim: {
-          subscriptionId: c.raw.subscriptionId ?? 0,
-          carrierName: c.raw.simDisplayName ?? "SIM",
-          displayName: c.raw.simDisplayName,
-        },
-      });
-      forwarded++;
-    }
+      if (candidates.length > 0) {
+        try {
+          const { existing: stored } = await api.checkExists(
+            active.pairId,
+            candidates.map((c) => c.clientMsgId),
+          );
+          if (stored.length > 0) {
+            const storedSet = new Set(stored);
+            const kept = candidates.filter((c) => !storedSet.has(c.clientMsgId));
+            console.log(
+              "[smsbridge] drain: skipped",
+              candidates.length - kept.length,
+              "already in DB",
+            );
+            candidates.length = 0;
+            candidates.push(...kept);
+          }
+        } catch (err) {
+          console.log("[smsbridge] drain: exists pre-check failed", String(err));
+        }
+      }
 
-    console.log("[smsbridge] drain: forwarded", forwarded, "of", native.length);
-    // The JS outbox is now the authoritative record (it retains sent entries),
-    // so the native mirror can be dropped once snapshot has been reconciled.
-    smsBridge.clearOutbox();
+      let forwarded = 0;
+      for (const c of candidates) {
+        await get().enqueueSms({
+          smsBody: c.body,
+          receiverNumber: c.sender,
+          fromName: c.raw.contactName,
+          pairId: active.pairId,
+          receiverPublicKey: active.receiverPublicKey,
+          clientMsgId: c.clientMsgId,
+          sim: {
+            subscriptionId: c.raw.subscriptionId ?? 0,
+            carrierName: c.raw.simDisplayName ?? "SIM",
+            displayName: c.raw.simDisplayName,
+          },
+        });
+        forwarded++;
+      }
+
+      console.log("[smsbridge] drain: forwarded", forwarded, "of", native.length);
+      // The JS outbox is now the authoritative record (it retains sent entries),
+      // so the native mirror can be dropped once snapshot has been reconciled.
+      smsBridge.clearOutbox();
+    });
   },
 
   async reconcileInbox() {
-    const { smsBridge } = await import("../native/sms-bridge");
-    let after = await storage.getSmsWatermark();
-    if (after == null) {
-      // First run: never forward pre-existing SMS history — anchor the scan at
-      // "now" and only recover messages that arrive from this point on.
-      after = Date.now();
-      await storage.setSmsWatermark(after);
-    }
-    console.log("[smsbridge] reconcileInbox: after=", after);
-
-    const native = await smsBridge.readRecentInbox(after, 200);
-    console.log("[smsbridge] reconcileInbox: scan returned", native.length);
-    if (native.length === 0) return;
-
-    const { pairs } = useDeviceStore.getState();
-    const active = pairs.find((p) => p.status === "active" && p.receiverPublicKey);
-    if (!active?.receiverPublicKey) return; // no paired receiver yet — keep watermark so we retry
-
-    const existing = await storage.getOutbox();
-    const known = new Set(existing.map((e) => e.clientMsgId));
-
-    const candidates: {
-      body: string;
-      sender: string;
-      clientMsgId: string;
-      timestamp: number;
-      subscriptionId: number;
-    }[] = [];
-    let maxTs = after;
-    for (const raw of native) {
-      if (raw.timestamp != null && raw.timestamp > maxTs) maxTs = raw.timestamp;
-      const body = raw.body?.trim();
-      const sender = raw.originatingAddress?.trim();
-      if (!body || !sender) continue;
-      const clientMsgId = smsClientMsgId({
-        pairId: active.pairId,
-        body,
-        sender,
-        timestamp: raw.timestamp ?? 0,
-        subscriptionId: raw.subscriptionId ?? 0,
-      });
-      if (known.has(clientMsgId)) continue;
-      known.add(clientMsgId);
-      candidates.push({
-        body,
-        sender,
-        clientMsgId,
-        timestamp: raw.timestamp ?? 0,
-        subscriptionId: raw.subscriptionId ?? 0,
-      });
-    }
-
-    if (candidates.length > 0) {
-      try {
-        const { existing: storedDup } = await api.checkExists(
-          active.pairId,
-          candidates.map((c) => c.clientMsgId),
-        );
-        if (storedDup.length > 0) {
-          const storedSet = new Set(storedDup);
-          const kept = candidates.filter((c) => !storedSet.has(c.clientMsgId));
-          console.log(
-            "[smsbridge] reconcileInbox: skipped",
-            candidates.length - kept.length,
-            "already in DB",
-          );
-          candidates.length = 0;
-          candidates.push(...kept);
-        }
-      } catch (err) {
-        console.log("[smsbridge] reconcileInbox: exists pre-check failed", String(err));
+    return serializeRecovery(async () => {
+      const { smsBridge } = await import("../native/sms-bridge");
+      let after = await storage.getSmsWatermark();
+      if (after == null) {
+        // First run: never forward pre-existing SMS history — anchor the scan at
+        // "now" and only recover messages that arrive from this point on.
+        after = Date.now();
+        await storage.setSmsWatermark(after);
       }
-    }
+      console.log("[smsbridge] reconcileInbox: after=", after);
 
-    let forwarded = 0;
-    for (const c of candidates) {
-      await get().enqueueSms({
-        smsBody: c.body,
-        receiverNumber: c.sender,
-        pairId: active.pairId,
-        receiverPublicKey: active.receiverPublicKey,
-        clientMsgId: c.clientMsgId,
-        sim: {
-          subscriptionId: c.subscriptionId,
-          carrierName: "SIM",
-          displayName: "SIM",
-        },
-      });
-      forwarded++;
-    }
+      const native = await smsBridge.readRecentInbox(after, 200);
+      console.log("[smsbridge] reconcileInbox: scan returned", native.length);
+      if (native.length === 0) return;
 
-    console.log("[smsbridge] reconcileInbox: forwarded", forwarded, "of", native.length);
-    await storage.setSmsWatermark(maxTs);
+      const { pairs } = useDeviceStore.getState();
+      const active = pairs.find((p) => p.status === "active" && p.receiverPublicKey);
+      if (!active?.receiverPublicKey) return; // no paired receiver yet — keep watermark so we retry
+
+      const existing = await storage.getOutbox();
+      const known = new Set(existing.map((e) => e.clientMsgId));
+
+      const candidates: {
+        body: string;
+        sender: string;
+        clientMsgId: string;
+        timestamp: number;
+        subscriptionId: number;
+      }[] = [];
+      let maxTs = after;
+      for (const raw of native) {
+        if (raw.timestamp != null && raw.timestamp > maxTs) maxTs = raw.timestamp;
+        const body = raw.body?.trim();
+        const sender = raw.originatingAddress?.trim();
+        if (!body || !sender) continue;
+        const clientMsgId = smsClientMsgId({
+          pairId: active.pairId,
+          body,
+          sender,
+          timestamp: raw.timestamp ?? 0,
+          subscriptionId: raw.subscriptionId ?? 0,
+        });
+        if (known.has(clientMsgId)) continue;
+        known.add(clientMsgId);
+        candidates.push({
+          body,
+          sender,
+          clientMsgId,
+          timestamp: raw.timestamp ?? 0,
+          subscriptionId: raw.subscriptionId ?? 0,
+        });
+      }
+
+      if (candidates.length > 0) {
+        try {
+          const { existing: storedDup } = await api.checkExists(
+            active.pairId,
+            candidates.map((c) => c.clientMsgId),
+          );
+          if (storedDup.length > 0) {
+            const storedSet = new Set(storedDup);
+            const kept = candidates.filter((c) => !storedSet.has(c.clientMsgId));
+            console.log(
+              "[smsbridge] reconcileInbox: skipped",
+              candidates.length - kept.length,
+              "already in DB",
+            );
+            candidates.length = 0;
+            candidates.push(...kept);
+          }
+        } catch (err) {
+          console.log("[smsbridge] reconcileInbox: exists pre-check failed", String(err));
+        }
+      }
+
+      let forwarded = 0;
+      for (const c of candidates) {
+        await get().enqueueSms({
+          smsBody: c.body,
+          receiverNumber: c.sender,
+          pairId: active.pairId,
+          receiverPublicKey: active.receiverPublicKey,
+          clientMsgId: c.clientMsgId,
+          sim: {
+            subscriptionId: c.subscriptionId,
+            carrierName: "SIM",
+            displayName: "SIM",
+          },
+        });
+        forwarded++;
+      }
+
+      console.log("[smsbridge] reconcileInbox: forwarded", forwarded, "of", native.length);
+      await storage.setSmsWatermark(maxTs);
+    });
   },
 
   async syncAll() {
