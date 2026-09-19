@@ -1,0 +1,89 @@
+name: Android Release APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      EXPO_NO_TELEMETRY: "1"
+      # Optional: set a repository variable to bake a backend URL into the APK.
+      # If unset, the app falls back to runtime detection / in-app server setting.
+      EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate native Android project
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform android --no-install --clean
+
+      - name: Ensure debug keystore
+        working-directory: apps/mobile/android/app
+        run: |
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v -storetype PKCS12 -keystore debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease
+
+      - name: Collect APK
+        run: |
+          mkdir -p artifacts
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
+            "artifacts/SIMBridge-${GITHUB_REF_NAME}.apk"
+          ls -lh artifacts
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SIMBridge-release-apk
+          path: artifacts/*.apk
+          if-no-files-found: error
+          retention-days: 30
