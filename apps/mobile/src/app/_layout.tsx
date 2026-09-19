@@ -11,6 +11,7 @@ import { useDeviceStore } from "@/stores/device-store";
 import { useMessageStore } from "@/stores/message-store";
 import { initNotifications } from "@/lib/notifications";
 import { colors } from "@/constants/theme";
+import UpdateBanner from "@/components/UpdateBanner";
 
 export default function RootLayout() {
   const hydrate = useDeviceStore((s) => s.hydrate);
@@ -126,6 +127,7 @@ export default function RootLayout() {
         <Stack.Screen name="(sender)" options={{ headerShown: false }} />
         <Stack.Screen name="(receiver)" options={{ headerShown: false }} />
       </Stack>
+      <UpdateBanner />
     </>
   );
 }

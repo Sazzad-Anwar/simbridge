@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
@@ -89,3 +89,14 @@ jobs:
           path: artifacts/*.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.apk
+          name: SIMBridge ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          update_release_body: true
+          update_files: true
