@@ -79,7 +79,7 @@ jobs:
         run: |
           mkdir -p artifacts
           cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
-            "artifacts/SIMBridge-${GITHUB_REF_NAME}.apk"
+            "artifacts/SIMBridge.apk"
           ls -lh artifacts
 
       - name: Upload APK
