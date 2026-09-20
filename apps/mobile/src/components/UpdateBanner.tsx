@@ -1,11 +1,17 @@
 /**
  * Modal shown on launch when a newer SIMBridge APK is available on GitHub.
+ * Offers each release once per installed build: dismissing it (Later, Download,
+ * or back) persists the offer so it does not nag again on every launch.
  */
 import React, { useEffect, useState } from "react";
 import { Linking, Modal, StyleSheet, Text, View } from "react-native";
 import { Button } from "@/components/ui";
 import { colors } from "@/constants/theme";
-import { checkForAppUpdate, type AppUpdate } from "@/lib/update";
+import {
+  checkForAppUpdate,
+  markAppUpdateOffered,
+  type AppUpdate,
+} from "@/lib/update";
 
 export default function UpdateBanner() {
   const [appUpdate, setAppUpdate] = useState<AppUpdate | null>(null);
@@ -20,12 +26,19 @@ export default function UpdateBanner() {
     };
   }, []);
 
+  const dismissUpdate = (upd: AppUpdate) => {
+    setAppUpdate(null);
+    void markAppUpdateOffered(upd);
+  };
+
   return (
     <Modal
       visible={appUpdate !== null}
       transparent
       animationType="fade"
-      onRequestClose={() => setAppUpdate(null)}
+      onRequestClose={() => {
+        if (appUpdate) dismissUpdate(appUpdate);
+      }}
     >
       <View style={styles.backdrop}>
         <View style={styles.card}>
@@ -40,11 +53,13 @@ export default function UpdateBanner() {
               label="Download"
               onPress={() => {
                 const url = appUpdate?.downloadUrl;
-                setAppUpdate(null);
+                if (appUpdate) dismissUpdate(appUpdate);
                 if (url) void Linking.openURL(url);
               }}
             />
-            <Button label="Later" variant="ghost" onPress={() => setAppUpdate(null)} />
+            <Button label="Later" variant="ghost" onPress={() => {
+              if (appUpdate) dismissUpdate(appUpdate);
+            }} />
           </View>
         </View>
       </View>

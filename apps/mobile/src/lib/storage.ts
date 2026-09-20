@@ -44,6 +44,7 @@ const STORE_KEYS = {
   lastSeq: "simbridge.lastSeq.v1", // Record<pairId, number>
   routing: "simbridge.routing.v1", // Record<receiverNumber, subscriptionId>
   smsWatermark: "simbridge.smsWatermark.v1", // last processed inbox-scan timestamp
+  lastUpdatePrompt: "simbridge.updatePrompt.v1", // { tagName, installedVersion } — last in-app update offered
 } as const;
 
 export interface StoredProfile {
@@ -188,6 +189,14 @@ export const storage = {
 
   getSmsWatermark: () => getJSON<number | null>(STORE_KEYS.smsWatermark, null),
   setSmsWatermark: (ts: number) => setJSON(STORE_KEYS.smsWatermark, ts),
+
+  // Last in-app update the user was shown (keyed to the installed build). Once
+  // offered, the same release is not prompted again for that build — the prompt
+  // only resurfaces when a NEWER release is published or the build is upgraded.
+  getLastUpdatePrompt: () =>
+    getJSON<{ tagName: string; installedVersion: string } | null>(STORE_KEYS.lastUpdatePrompt, null),
+  setLastUpdatePrompt: (p: { tagName: string; installedVersion: string } | null) =>
+    setJSON(STORE_KEYS.lastUpdatePrompt, p),
 
   async wipe(): Promise<void> {
     await Promise.all([

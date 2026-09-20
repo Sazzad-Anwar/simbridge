@@ -7,8 +7,15 @@
  * build — surfaces a prompt so users can download/install the update.
  *
  * The repo is public, so the GitHub Releases API works without a token.
+ *
+ * A release is only offered ONCE per installed build: after the user sees the
+ * prompt (and taps Download/Later), the offer is remembered so the same
+ * release does not nag again on every launch. The prompt resurfaces only for a
+ * newer release, or after the installed build is actually upgraded (in which
+ * case the release is no longer newer than what is installed).
  */
 import Constants from "expo-constants";
+import { storage } from "@/lib/storage";
 
 const LATEST_RELEASE_URL =
   "https://api.github.com/repos/Sazzad-Anwar/simbridge/releases/latest";
@@ -38,8 +45,9 @@ export function installedVersion(): string {
 
 /**
  * Returns the latest published GitHub release when it is newer than the
- * currently installed version, otherwise null. Failures (offline, rate
- * limited, malformed release) resolve to null — never throw.
+ * currently installed version AND has not already been offered for this build,
+ * otherwise null. Failures (offline, rate limited, malformed release) resolve
+ * to null — never throw.
  */
 export async function checkForAppUpdate(): Promise<AppUpdate | null> {
   try {
@@ -61,6 +69,7 @@ export async function checkForAppUpdate(): Promise<AppUpdate | null> {
       if (!tagName || !downloadUrl) return null;
       const version = tagName.replace(/^v/i, "");
       if (!semverGt(version, installedVersion())) return null;
+      if (await wasOfferedForInstalledBuild(tagName)) return null;
       return { tagName, version, downloadUrl };
     } finally {
       clearTimeout(timer);
@@ -68,4 +77,20 @@ export async function checkForAppUpdate(): Promise<AppUpdate | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Remembers that the user was shown the given release so it is not prompted
+ * again while the installed build is unchanged.
+ */
+export async function markAppUpdateOffered(update: AppUpdate): Promise<void> {
+  await storage.setLastUpdatePrompt({
+    tagName: update.tagName,
+    installedVersion: installedVersion(),
+  });
+}
+
+async function wasOfferedForInstalledBuild(tagName: string): Promise<boolean> {
+  const offered = await storage.getLastUpdatePrompt();
+  return offered?.tagName === tagName && offered.installedVersion === installedVersion();
 }
