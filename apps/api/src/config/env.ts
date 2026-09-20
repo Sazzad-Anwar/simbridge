@@ -47,7 +47,7 @@ export const env = {
   jwtSecret: str("JWT_SECRET", "simbridge-dev-secret-change-me-in-production"),
   jwtExpiresIn: str("JWT_EXPIRES_IN", "30d"),
   accessTokenTtlSeconds: 60 * 60 * 24 * 30,
-  pairingCodeTtlMinutes: num("PAIRING_CODE_TTL_MINUTES", 10),
+  pairingCodeTtlMinutes: num("PAIRING_CODE_TTL_MINUTES", 2),
   challengeTtlSeconds: num("CHALLENGE_TTL_SECONDS", 300),
   messageTtlDays: num("MESSAGE_TTL_DAYS", 7),
   auditTtlDays: num("AUDIT_TTL_DAYS", 30),
