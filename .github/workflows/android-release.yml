@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [release]
-    tags: ['v*']
+    tags:
+      - 'v*.*.*'
 
 concurrency:
   group: android-release-${{ github.ref }}
@@ -21,8 +22,6 @@ jobs:
 
     env:
       EXPO_NO_TELEMETRY: '1'
-      # Optional: set a repository variable to bake a backend URL into the APK.
-      # If unset, the app falls back to runtime detection / in-app server setting.
       EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
 
     steps:
@@ -65,9 +64,15 @@ jobs:
         working-directory: apps/mobile/android/app
         run: |
           if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -v -storetype PKCS12 -keystore debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
+            keytool -genkeypair -v \
+              -storetype PKCS12 \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
@@ -78,25 +83,39 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p artifacts
-          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
-            "artifacts/SIMBridge.apk"
-          ls -lh artifacts
 
-      - name: Upload APK
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
+            artifacts/SIMBridge.apk
+
+          test -f artifacts/SIMBridge.apk
+
+          echo "APK:"
+          ls -lh artifacts/SIMBridge.apk
+
+      - name: Generate SHA-256
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          sha256sum artifacts/SIMBridge.apk \
+            > artifacts/SIMBridge.apk.sha256
+
+          cat artifacts/SIMBridge.apk.sha256
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v7
         with:
           name: SIMBridge
-          path: artifacts/*.apk
+          path: artifacts/SIMBridge.apk
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          files: artifacts/*.apk
+          tag_name: ${{ github.ref_name }}
           name: SIMBridge ${{ github.ref_name }}
           generate_release_notes: true
           draft: false
-          update_release_body: true
-          update_files: true
+          files: |
+            artifacts/SIMBridge.apk
+            artifacts/SIMBridge.apk.sha256
