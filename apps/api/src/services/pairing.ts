@@ -84,7 +84,7 @@ export async function decoratePairs(pairs: PairDoc[], myDeviceId: string): Promi
         p.receiverDeviceId === myDeviceId ? undefined : nameById.get(p.receiverDeviceId),
       senderPublicKey: keyById.get(p.senderDeviceId),
       receiverPublicKey: keyById.get(p.receiverDeviceId),
-      senderSigningPublicKey: sender?.signingPublicKey,
+      senderSigningPublicKey: pinnedSignKey,
       senderSigningKeyFingerprint: pinnedFingerprint,
       receiverSigningPublicKey: receiver?.signingPublicKey,
       receiverSigningKeyFingerprint: receiver?.signingKeyFingerprint,

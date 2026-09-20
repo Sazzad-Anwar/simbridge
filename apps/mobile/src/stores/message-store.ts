@@ -173,13 +173,34 @@ async function prepareMessagePayload(input: {
 
 /**
  * Resolve the payload to transmit for an outbox entry. V1 entries carry their
- * signed envelope in `entry.payload` (survives retries unchanged). Legacy V0
- * entries re-encrypt from the local plaintext (or reuse a stored payload).
+ * signed envelope in `entry.payload` and are reused UNCHANGED while the local
+ * signing identity still matches. After a key rotation the stored envelope is
+ * signed by a revoked identity (the server verifies against the CURRENT
+ * registered key), so it can never deliver — re-prepare under the current
+ * identity (falling back to V0 when V1 is no longer usable). Legacy V0 entries
+ * re-encrypt from the local plaintext on each attempt.
  */
 async function payloadForEntry(entry: OutboxEntry, pair: PairDTO): Promise<MessagePayload> {
-  if (entry.payload) return entry.payload
   if (!pair.receiverPublicKey) throw new Error('Pair has no receiver key to encrypt to')
-  return encrypt(pair.receiverPublicKey, entry.smsBody)
+  if (entry.payload) {
+    const normalized = normalizePayload(entry.payload)
+    if (normalized.kind === 'legacy-v0') return entry.payload
+    const currentFingerprint = await secrets.get('signPublicKeyFingerprint')
+    if (
+      currentFingerprint != null &&
+      normalized.envelope.senderSignKeyFingerprint === currentFingerprint
+    ) {
+      return entry.payload
+    }
+  }
+  const payload = await prepareMessagePayload({
+    pairId: pair.pairId,
+    receiverPublicKey: pair.receiverPublicKey,
+    plaintext: entry.smsBody,
+  })
+  const updated = await storage.updateOutboxEntry(entry.clientMsgId, { payload })
+  useMessageStore.setState({ outbox: updated })
+  return payload
 }
 
 async function deliver(

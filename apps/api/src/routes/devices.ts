@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { authGuard } from "../auth/guard.js";
 import { Device } from "../db/models/device.js";
+import { Pair } from "../db/models/pair.js";
 import { SimSubscription } from "../db/models/sim.js";
 import { toDeviceDTO } from "../services/pairing.js";
 import { errors } from "../utils/errors.js";
@@ -122,6 +123,23 @@ export const deviceRoutes = new Elysia({ prefix: "/me", tags: ["devices"] })
         patch.signingKeyFingerprint = expectedFingerprint;
         patch.keysProvenAt = new Date();
         patch.protocolVersion = 1;
+
+        if (current.signingPublicKey !== signingPublicKey) {
+          // Keep the sender pin of every active pair in lockstep with the live
+          // key so the receiver always sees a coherent (key, fingerprint) pair.
+          // A rotation clears the receiver's confirmation until they re-verify
+          // the new fingerprint (verified V1 resumes only after that).
+          await Pair.updateMany(
+            { senderDeviceId: auth.deviceId, status: "active" },
+            {
+              $set: {
+                pinnedSenderSignKey: signingPublicKey,
+                pinnedSenderSignKeyFingerprint: expectedFingerprint,
+                receiverFingerprintConfirmed: false,
+              },
+            },
+          );
+        }
       }
 
       await Device.updateOne({ deviceId: auth.deviceId }, { $set: patch });

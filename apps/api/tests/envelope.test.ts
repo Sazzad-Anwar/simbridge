@@ -277,7 +277,16 @@ describe.skipIf(!hasMongo)("V1 signed envelopes — relay, verify, confirm", () 
     );
     expect(rekeyed.status).toBe(200);
 
-    // Confirmations were both true; a send with the NEW key must clear the receiver's.
+    // Eager re-pin: the pair is coherent IMMEDIATELY after rotation — the
+    // receiver sees the new fingerprint (matching the live key) and its
+    // confirmation is already cleared, before any post-rotation message sends.
+    const preList = await api("/pairs", { token: receiverToken });
+    const prePair = preList.body.data.find((p: { pairId: string }) => p.pairId === pairId);
+    expect(prePair.senderSigningPublicKey).toBe(rotated.signPublicKey);
+    expect(prePair.senderSigningKeyFingerprint).toBe(fingerprintOf(sender.encPublicKey, rotated.signPublicKey));
+    expect(prePair.receiverFingerprintConfirmed).toBe(false);
+
+    // A send with the NEW key succeeds and keeps the re-pin stable.
     const env = encryptMessageV1({
       messageId: `envt_${Date.now()}`,
       pairId,
@@ -299,6 +308,26 @@ describe.skipIf(!hasMongo)("V1 signed envelopes — relay, verify, confirm", () 
     const pair = list.body.data.find((p: { pairId: string }) => p.pairId === pairId);
     expect(pair.receiverFingerprintConfirmed).toBe(false);
     expect(pair.senderSigningKeyFingerprint).toBe(fingerprintOf(sender.encPublicKey, rotated.signPublicKey));
+  });
+
+  it("rejects envelopes signed by the pre-rotation key (server verifies against the current key)", async () => {
+    const env = encryptMessageV1({
+      messageId: `envt_${Date.now()}`,
+      pairId,
+      senderDeviceId: senderDeviceId,
+      receiverDeviceId: receiverDeviceId,
+      senderSignKeyFingerprint: sender.fingerprint,
+      receiverEncPublicKey: receiver.encPublicKey,
+      senderSignSecretKey: sender.signSecretKey, // pre-rotation key
+      plaintext: "stale identity",
+    });
+    const res = await api("/messages", {
+      method: "POST",
+      token: senderToken,
+      body: { pairId, clientMsgId: "v1-stale-" + Date.now(), payload: env },
+    });
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("INVALID_SIGNATURE");
   });
 
   it("still accepts legacy V0 payloads (migration path)", async () => {
