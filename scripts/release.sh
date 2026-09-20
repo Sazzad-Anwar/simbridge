@@ -2,11 +2,17 @@
 #
 # SIMBridge release helper.
 #
-# Prepares an Android release by creating an annotated, semantic-version Git
-# tag (vMAJOR.MINOR.PATCH) on the current HEAD commit. It never pushes and it
-# never creates a GitHub Release — the GitHub Actions workflow
-# (.github/workflows/android-release.yml) is the authoritative production
-# release mechanism and only publishes from a valid tag.
+# Prepares an Android release:
+#   1. verifies the working tree is clean,
+#   2. checks the proposed vMAJOR.MINOR.PATCH tag against previous tags,
+#   3. bumps apps/mobile/app.json (version + versionCode) if needed,
+#   4. commits "chore(release): prepare vX.Y.Z",
+#   5. creates an annotated Git tag for the release,
+#   6. prints the exact commands to push.
+#
+# It never pushes and it never creates a GitHub Release — the GitHub Actions
+# workflow (.github/workflows/android-release.yml) is the authoritative
+# production release mechanism and only publishes from a valid tag.
 #
 # Usage:
 #   pnpm release              # suggest the next patch release (e.g. v1.0.1)
@@ -25,7 +31,14 @@ bump="patch"
 explicit=""
 
 usage() {
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+  echo "SIMBridge release helper — prepares and tags an Android release."
+  echo
+  echo "Usage:"
+  echo "  pnpm release              # suggest the next patch release (e.g. v1.0.1)"
+  echo "  pnpm release --minor      # suggest the next minor release (e.g. v1.1.0)"
+  echo "  pnpm release --major      # suggest the next major release (e.g. v2.0.0)"
+  echo "  pnpm release --version v1.1.0   # explicit version (still confirmed)"
+  echo "  pnpm release --allow-dirty      # skip the clean-worktree requirement"
 }
 
 while (($# > 0)); do
@@ -85,6 +98,22 @@ NODE
 # to the native project by `expo prebuild`).
 read_android_version() {
   node -p "require('./apps/mobile/app.json').expo.version" 2>/dev/null || true
+}
+
+# Bumps apps/mobile/app.json: version -> $1, versionCode +1.
+update_android_version() {
+  node - "$1" <<'NODE'
+const fs = require('fs')
+const p = './apps/mobile/app.json'
+const cfg = JSON.parse(fs.readFileSync(p, 'utf8'))
+const prev = cfg.expo.version
+const prevCode = cfg.expo.android?.versionCode ?? 1
+cfg.expo.version = process.argv[2]
+cfg.expo.android.versionCode = prevCode + 1
+fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n')
+console.log(`  version    ${prev} -> ${process.argv[2]}`)
+console.log(`  versionCode ${prevCode} -> ${prevCode + 1}`)
+NODE
 }
 
 # ---- Working tree -------------------------------------------------------------
@@ -174,16 +203,14 @@ fi
 ANDROID_VERSION="$(read_android_version)"
 ANDROID_DISPLAY="${ANDROID_VERSION:-unknown}"
 
-if [ -n "$ANDROID_VERSION" ] && [ "$PROPOSED" != "v${ANDROID_VERSION}" ]; then
-  {
-    echo "error: version mismatch."
-    echo "  Git tag:            $PROPOSED"
-    echo "  android versionName: $ANDROID_VERSION"
-    echo "The GitHub Actions workflow will fail the production release unless they match."
-    echo "Bump apps/mobile/app.json \"version\" (and \"android.versionCode\" for store upgrades)"
-    echo "to $PROPOSED, commit that as part of the release commit, then re-run."
-  } >&2
+if [ -z "$ANDROID_VERSION" ]; then
+  echo "error: could not read Android versionName from apps/mobile/app.json." >&2
   exit 1
+fi
+
+NEED_BUMP=0
+if [ "$PROPOSED" != "v${ANDROID_VERSION}" ]; then
+  NEED_BUMP=1
 fi
 
 # ---- Confirmation ----------------------------------------------------------------
@@ -212,21 +239,42 @@ if [ "$BRANCH" != "release" ] && [ "$BRANCH" != "(detached HEAD)" ]; then
   echo "warning: not on the 'release' branch (current: $BRANCH)."
 fi
 
+if [ "$NEED_BUMP" -eq 1 ]; then
+  echo "note: apps/mobile/app.json will be bumped to ${PROPOSED#v} (versionCode +1) and"
+  echo "      committed as \"chore(release): prepare $PROPOSED\" before tagging."
+fi
+
 echo
-printf 'Create release tag %s on %s? [y/N] ' "$PROPOSED" "$COMMIT"
+if [ "$NEED_BUMP" -eq 1 ]; then
+  printf 'Create release tag %s (with prepare commit)? [y/N] ' "$PROPOSED"
+else
+  printf 'Create release tag %s on %s? [y/N] ' "$PROPOSED" "$COMMIT"
+fi
 read -r answer
 case "$answer" in
   y | Y | yes | YES) ;;
   *) echo "Aborted. No tag was created." >&2; exit 1 ;;
 esac
 
-# ---- Create tag -------------------------------------------------------------------
+# ---- Prepare release commit, then create tag --------------------------------------
+
+if [ "$NEED_BUMP" -eq 1 ]; then
+  echo
+  echo "Updating apps/mobile/app.json:"
+  update_android_version "${PROPOSED#v}"
+  git add apps/mobile/app.json
+  git commit -qm "chore(release): prepare $PROPOSED"
+  RELEASE_COMMIT="$(git rev-parse --short HEAD)"
+  echo "Release commit: $RELEASE_COMMIT chore(release): prepare $PROPOSED"
+else
+  RELEASE_COMMIT="$COMMIT"
+fi
 
 git tag -a "$PROPOSED" -m "Release $PROPOSED"
 
 echo
 echo "Release tag created:"
-echo "  $PROPOSED -> $(git rev-parse --short "$PROPOSED")"
+echo "  $PROPOSED -> $RELEASE_COMMIT"
 echo
 echo "Push with:"
 echo "  git push origin \"$BRANCH\""
