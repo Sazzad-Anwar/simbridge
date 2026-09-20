@@ -2,7 +2,7 @@
 
 import { Github } from "lucide-react";
 import { LogoWordmark } from "@/components/Logo";
-import { GITHUB_URL, NAV_LINKS } from "@/lib/constants";
+import { APP_VERSION, GITHUB_URL, NAV_LINKS, RELEASES_URL } from "@/lib/constants";
 
 const FOOTER_LINKS = [...NAV_LINKS.map((l) => ({ href: l.href, label: l.label })), { href: "#download", label: "Download" }];
 
@@ -66,7 +66,15 @@ export function Footer() {
             © {new Date().getFullYear()} SIMBridge. All rights reserved.
           </p>
           <p className="text-xs text-muted">
-            Version <span className="font-mono font-semibold text-ink">v1.0.0</span>
+            Version{" "}
+            <a
+              href={RELEASES_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono font-semibold text-ink transition-colors hover:text-blue"
+            >
+              {APP_VERSION}
+            </a>
           </p>
         </div>
       </div>
