@@ -115,9 +115,6 @@ class AppInstallerModule : Module() {
   }
 
   private fun installApk(context: Context, apkPath: String, expectedSha256: String?) {
-    val file = File(apkPath)
-    if (!file.isFile) throw IllegalStateException("Downloaded APK not found")
-
     if (!canRequestPackageInstalls(context)) {
       sendEvent(
         "onInstallPermissionRequired",
@@ -126,14 +123,16 @@ class AppInstallerModule : Module() {
       return
     }
 
-    verifySha256(file, expectedSha256)
-
+    val file = File(apkPath)
     val sessionParams = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
     sessionParams.setAppPackageName(context.packageName)
 
     val packageInstaller = context.packageManager.packageInstaller
     var session: PackageInstaller.Session? = null
     try {
+      if (!file.isFile) throw IllegalStateException("Downloaded APK not found")
+      verifySha256(file, expectedSha256)
+
       val sessionId = packageInstaller.createSession(sessionParams)
       session = packageInstaller.openSession(sessionId)
 
