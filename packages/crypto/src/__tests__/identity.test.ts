@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generateDeviceIdentity, generateSigningKeyPair, fingerprintOf } from "../identity";
 import { publicKeyFromSecret } from "../index";
-import { GOLDEN_ENC_PUBLIC_KEY, GOLDEN_SIGN_PUBLIC_KEY } from "../golden";
+import { GOLDEN_ENC_PUBLIC_KEY, GOLDEN_SIGN_PUBLIC_KEY, GOLDEN_FINGERPRINT } from "../golden";
 
 describe("generateDeviceIdentity", () => {
   it("generates a full identity with enc + sign keys", () => {
@@ -38,9 +38,7 @@ describe("generateDeviceIdentity", () => {
   });
 
   it("reproduces the locked golden fingerprint for the golden keys", () => {
-    expect(fingerprintOf(GOLDEN_ENC_PUBLIC_KEY, GOLDEN_SIGN_PUBLIC_KEY)).toBe(
-      "yjFV7AsOcmA+PHIaKI37RPdRgC7Ne1MAQPQT16uT3Lk=",
-    );
+    expect(fingerprintOf(GOLDEN_ENC_PUBLIC_KEY, GOLDEN_SIGN_PUBLIC_KEY)).toBe(GOLDEN_FINGERPRINT);
   });
 
   it("generateSigningKeyPair produces a standalone signing pair (migration path)", () => {

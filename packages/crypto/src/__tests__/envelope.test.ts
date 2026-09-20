@@ -14,6 +14,7 @@ import {
   GOLDEN_SIGN_SECRET_KEY,
   GOLDEN_ENC_PUBLIC_KEY,
   GOLDEN_ENC_SECRET_KEY,
+  GOLDEN_OTHER_SIGN_PUBLIC_KEY,
 } from "../golden";
 import { CRYPTO_SCHEME, CRYPTO_PROTOCOL_VERSION, LEGACY_V0_SCHEME } from "../protocol";
 
@@ -144,12 +145,12 @@ describe("encryptMessageV1 / decryptEnvelopeV1", () => {
   it("rejects envelopes signed by an unregistered sender key", () => {
     const wrong = { ...INPUT, senderSignSecretKey: GOLDEN_SIGN_SECRET_KEY };
     const envelope = encryptMessageV1(wrong); // still golden; verified against golden pub
-    // verify against a DIFFERENT public key than the signer => fails
+    // verify against a DIFFERENT (seed-derived) public key than the signer => fails
     try {
       decryptEnvelopeV1({
         envelope,
         receiverEncSecretKey: GOLDEN_ENC_SECRET_KEY,
-        senderSignPublicKey: "cf79/fv6+fj39vX08/Lx8O/u7ezr6uno5+bl5OPi4eC6/HG+rTrF5LY+nIIW7nGjSq7GVyLu28pyi06bPMzjlg=", // not the golden signer
+        senderSignPublicKey: GOLDEN_OTHER_SIGN_PUBLIC_KEY, // not the golden signer
         expectedSenderSignKeyFingerprint: GOLDEN_FINGERPRINT,
       });
       expect.unreachable("should have thrown");
