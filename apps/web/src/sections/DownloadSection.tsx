@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowRight, File, Lock, ShieldCheck } from "lucide-react";
+import { ArrowRight, File, Lock, ShieldCheck, Tag } from "lucide-react";
 import { DownloadButton } from "@/components/DownloadButton";
 import { SectionReveal } from "@/lib/motion";
+import { APP_VERSION, RELEASES_URL } from "@/lib/constants";
 
 export function DownloadSection() {
   return (
@@ -40,6 +41,18 @@ export function DownloadSection() {
             <span className="flex items-center gap-1.5">
               <ShieldCheck className="h-3.5 w-3.5 text-cyan-light" aria-hidden /> Secure connection
             </span>
+          </div>
+
+          <div className="mt-6">
+            <a
+              href={RELEASES_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-light underline-offset-4 transition-colors hover:text-white hover:underline"
+            >
+              <Tag className="h-3.5 w-3.5" aria-hidden />
+              Release {APP_VERSION} on GitHub
+            </a>
           </div>
         </SectionReveal>
       </div>
