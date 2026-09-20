@@ -1,5 +1,6 @@
 import { Schema, model } from "mongoose";
 import type { DeliveryStatus } from "@simbridge/shared";
+import type { MessagePayload } from "@simbridge/shared";
 
 export interface MessageDoc {
   messageId: string;
@@ -14,12 +15,8 @@ export interface MessageDoc {
   from?: string;
   /** Contact name for the originating SMS sender (resolved on the SIM phone). */
   fromName?: string;
-  payload: {
-    ciphertext: string;
-    ephemPublicKey: string;
-    nonce: string;
-    scheme: string;
-  };
+  /** Either the legacy V0 payload or a signed V1 envelope. Stored opaquely. */
+  payload: MessagePayload;
   sim?: {
     subscriptionId?: number;
     carrierName?: string;
@@ -47,12 +44,7 @@ const MessageSchema = new Schema<MessageDoc>(
     seq: { type: Number, required: true },
     from: { type: String },
     fromName: { type: String },
-    payload: {
-      ciphertext: { type: String, required: true },
-      ephemPublicKey: { type: String, required: true },
-      nonce: { type: String, required: true },
-      scheme: { type: String, required: true },
-    },
+    payload: { type: Schema.Types.Mixed, required: true },
     sim: {
       subscriptionId: { type: Number },
       carrierName: { type: String },
@@ -70,6 +62,8 @@ const MessageSchema = new Schema<MessageDoc>(
 
 // Idempotency: the same clientMsgId inside a pair can only be stored once.
 MessageSchema.index({ pairId: 1, clientMsgId: 1 }, { unique: true });
+// Replay protection for V1: a sender messageId must also be unique per pair.
+MessageSchema.index({ pairId: 1, "payload.messageId": 1 }, { unique: true, partialFilterExpression: { "payload.version": 1 } });
 // Fast sync by sequence number.
 MessageSchema.index({ pairId: 1, seq: 1 });
 MessageSchema.index({ roomId: 1, seq: 1 });

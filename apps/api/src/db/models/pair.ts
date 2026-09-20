@@ -14,6 +14,17 @@ export interface PairDoc {
   seq: number;
   acceptedAt?: Date;
   revokedAt?: Date;
+  /**
+   * Sender signing identity pinned when the pair became active. Over time the
+   * sender may rotate keys (PATCH /me); the pin is kept in sync on the next
+   * verified V1 message and `receiverFingerprintConfirmed` is cleared so the
+   * receiver must re-verify before V1 resumes.
+   */
+  pinnedSenderSignKey?: string;
+  pinnedSenderSignKeyFingerprint?: string;
+  /** True once each side has explicitly verified the other's fingerprint. */
+  senderFingerprintConfirmed: boolean;
+  receiverFingerprintConfirmed: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,6 +41,10 @@ const PairSchema = new Schema<PairDoc>(
     seq: { type: Number, default: 0 },
     acceptedAt: { type: Date },
     revokedAt: { type: Date },
+    pinnedSenderSignKey: { type: String },
+    pinnedSenderSignKeyFingerprint: { type: String },
+    senderFingerprintConfirmed: { type: Boolean, default: false },
+    receiverFingerprintConfirmed: { type: Boolean, default: false },
   },
   { timestamps: true },
 );

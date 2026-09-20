@@ -8,16 +8,39 @@
  *  - Step 7 "Message Sync": fetch after lastSeq cursor on start/reconnect
  */
 import { create } from 'zustand'
-import type { EncryptedPayload, MessageDTO, PairDTO } from '@simbridge/shared'
+import type {
+  EncryptedPayload,
+  MessageDTO,
+  MessagePayload,
+  PairDTO,
+} from '@simbridge/shared'
+import { canUseV1, iConfirmedPeer, isV1Pair, peerIdentity } from '@simbridge/shared'
 // Polyfill before @simbridge/crypto (tweetnacl captures its PRNG at module load).
 import '../lib/random-polyfill'
-import { decrypt, encrypt } from '@simbridge/crypto'
+import {
+  bytesToBase64,
+  decrypt,
+  decryptEnvelopeV1,
+  encrypt,
+  encryptMessageV1,
+  normalizePayload,
+  randomBytes,
+} from '@simbridge/crypto'
 import { secrets, storage, type OutboxEntry } from '../lib/storage'
 import { api } from '../lib/api'
 import { connectSocket, getSocket, emitWithAck } from '../lib/socket'
 import { useDeviceStore } from './device-store'
 import { notify } from '../lib/notifications'
 import { smsClientMsgId } from '../native/sms-bridge'
+
+/** Client-generated, signed-envelope unique id (covered by the Ed25519 signature). */
+function envelopeMessageId(): string {
+  const entropy = bytesToBase64(randomBytes(8))
+    .replace(/[+/=]/g, '')
+    .toLowerCase()
+    .slice(0, 12)
+  return `env_${Date.now().toString(36)}_${entropy}`
+}
 
 let wired = false
 let unsubFns: (() => void)[] = []
@@ -43,7 +66,7 @@ function serializeRecovery<T>(task: () => Promise<T>): Promise<T> {
 export interface InboxEntry extends MessageDTO {
   decrypted?: string
   /** Set instead of `decrypted` when local decryption could not complete. */
-  decryptError?: "no-key" | "failed"
+  decryptError?: "no-key" | "failed" | "unverified"
 }
 
 interface MessageState {
@@ -90,9 +113,58 @@ function receiverSecret(): Promise<string | null> {
   return secrets.get('secretKey')
 }
 
+/**
+ * Build the payload for a new outbound message.
+ *  - Blazing the V1 path needs a fully-verified pair (both hardened + both
+ *    fingerprints confirmed + no repair). We then sign a canonical envelope.
+ *  - Anything else falls back to the legacy V0 ECIES payload, which remains
+ *    fully supported — confirmation is additive, never a new hard dependency.
+ */
+async function prepareMessagePayload(input: {
+  pairId: string
+  receiverPublicKey: string
+  plaintext: string
+}): Promise<MessagePayload> {
+  const { pairs, needsRepair } = useDeviceStore.getState()
+  const pair = pairs.find((p) => p.pairId === input.pairId && p.status === 'active')
+  const myDeviceId = await secrets.get('deviceId')
+
+  if (pair && myDeviceId && canUseV1(pair, myDeviceId, needsRepair)) {
+    const [signSecretKey, signKeyFingerprint] = await Promise.all([
+      secrets.get('signSecretKey'),
+      secrets.get('signPublicKeyFingerprint'),
+    ])
+    if (signSecretKey && signKeyFingerprint) {
+      return encryptMessageV1({
+        messageId: envelopeMessageId(),
+        pairId: pair.pairId,
+        senderDeviceId: myDeviceId,
+        receiverDeviceId: pair.receiverDeviceId,
+        senderSignKeyFingerprint: signKeyFingerprint,
+        receiverEncPublicKey: input.receiverPublicKey,
+        senderSignSecretKey: signSecretKey,
+        plaintext: input.plaintext,
+      })
+    }
+  }
+
+  return encrypt(input.receiverPublicKey, input.plaintext)
+}
+
+/**
+ * Resolve the payload to transmit for an outbox entry. V1 entries carry their
+ * signed envelope in `entry.payload` (survives retries unchanged). Legacy V0
+ * entries re-encrypt from the local plaintext (or reuse a stored payload).
+ */
+async function payloadForEntry(entry: OutboxEntry, pair: PairDTO): Promise<MessagePayload> {
+  if (entry.payload) return entry.payload
+  if (!pair.receiverPublicKey) throw new Error('Pair has no receiver key to encrypt to')
+  return encrypt(pair.receiverPublicKey, entry.smsBody)
+}
+
 async function deliver(
   entry: OutboxEntry,
-  payload: EncryptedPayload,
+  payload: MessagePayload,
 ): Promise<void> {
   const socket = getSocket()
   let delivered = false
@@ -176,12 +248,21 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       })
     const existing = await storage.getOutbox()
     if (existing.some((e) => e.clientMsgId === id)) return
+
+    // Prepare the payload ONCE (a signed V1 envelope when the pair is fully
+    // verified, legacy ECIES otherwise) so retries send identical bytes.
+    const payload = await prepareMessagePayload({
+      pairId,
+      receiverPublicKey,
+      plaintext: smsBody,
+    })
     const entry: OutboxEntry = {
       clientMsgId: id,
       pairId,
       receiverNumber,
       fromName,
       smsBody,
+      payload,
       sim,
       status: 'pending',
       attempts: 0,
@@ -192,7 +273,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ outbox })
 
     try {
-      const payload = encrypt(receiverPublicKey, smsBody)
       await deliver(entry, payload)
     } catch (err) {
       const updated = await storage.updateOutboxEntry(id, {
@@ -216,8 +296,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const pair = pairs.find((p) => p.pairId === entry.pairId)
       if (!pair || pair.status !== 'active' || !pair.receiverPublicKey) continue
       try {
-        // Re-encrypt from the device-local plaintext stored in the outbox.
-        const payload = encrypt(pair.receiverPublicKey, entry.smsBody)
+        // Signed V1 envelopes travel unchanged; legacy entries re-encrypt from
+        // the device-local plaintext stored in the outbox.
+        const payload = await payloadForEntry(entry, pair)
         await deliver(entry, payload)
       } catch (err) {
         const updated = await storage.updateOutboxEntry(entry.clientMsgId, {
@@ -507,7 +588,40 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       decryptError = "no-key"
     } else {
       try {
-        decrypted = decrypt(secret, entry.payload)
+        const normalized = normalizePayload(entry.payload)
+        if (normalized.kind === "legacy-v0") {
+          decrypted = decrypt(secret, normalized.payload)
+        } else {
+          // V1: decrypt ONLY against the fingerprint we have explicitly
+          // verified. Until the sender's fingerprint is confirmed this message
+          // is held as "unverified" — the plaintext exists but is not trusted.
+          const pair = useDeviceStore.getState().pairs.find(
+            (p) => p.pairId === entry.pairId && p.status === "active",
+          )
+          const myDeviceId = await secrets.get("deviceId")
+          const confirmed =
+            pair != null && myDeviceId != null && iConfirmedPeer(pair, myDeviceId)
+          const sender =
+            pair != null && myDeviceId != null
+              ? peerIdentity(pair, myDeviceId)
+              : undefined
+          if (
+            !confirmed ||
+            !pair ||
+            !isV1Pair(pair) ||
+            !sender?.signingPublicKey ||
+            !sender.signingKeyFingerprint
+          ) {
+            decryptError = "unverified"
+          } else {
+            decrypted = decryptEnvelopeV1({
+              envelope: normalized.envelope,
+              receiverEncSecretKey: secret,
+              senderSignPublicKey: sender.signingPublicKey,
+              expectedSenderSignKeyFingerprint: sender.signingKeyFingerprint,
+            })
+          }
+        }
       } catch {
         decryptError = "failed"
       }
@@ -518,7 +632,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         : m,
     )
     set({ inbox })
-    return decrypted ?? (decryptError === "no-key" ? "[no key on device]" : "[unable to decrypt]")
+    return decrypted ?? (decryptError === "no-key"
+      ? "[no key on device]"
+      : decryptError === "unverified"
+        ? "[unverified — confirm the sender's fingerprint to decrypt]"
+        : "[unable to decrypt]")
   },
 
   clearDecryptError(messageId) {

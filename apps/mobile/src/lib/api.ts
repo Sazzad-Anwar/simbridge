@@ -123,11 +123,24 @@ async function request<T>(
 
 export const api = {
   // auth
+  challengeRegister: (): Promise<import('@simbridge/shared').ChallengeToken> =>
+    request<import('@simbridge/shared').ChallengeToken>('/auth/challenge/register', {
+      method: 'POST',
+      auth: false,
+    }),
+  challengeRekey: (): Promise<import('@simbridge/shared').ChallengeToken> =>
+    request<import('@simbridge/shared').ChallengeToken>('/auth/challenge/rekey', {
+      method: 'POST',
+    }),
   register: (input: {
     name: string
     role: 'sender' | 'receiver'
     publicKey: string
     platform?: string
+    signingPublicKey?: string
+    signingKeyFingerprint?: string
+    challengeId?: string
+    challengePoP?: string
   }) =>
     request<import('@simbridge/shared').RegisterResult>('/auth/register', {
       method: 'POST',
@@ -146,7 +159,14 @@ export const api = {
 
   // device / SIM registry
   me: () => request<import('@simbridge/shared').DeviceDTO>('/me'),
-  updateMe: (patch: { name?: string; pushToken?: string }) =>
+  updateMe: (patch: {
+    name?: string
+    pushToken?: string
+    signingPublicKey?: string
+    signingKeyFingerprint?: string
+    challengeId?: string
+    challengePoP?: string
+  }) =>
     request<import('@simbridge/shared').DeviceDTO>('/me', {
       method: 'PATCH',
       body: patch,
@@ -179,6 +199,12 @@ export const api = {
   revokePair: (pairId: string) =>
     request<{ revoked: boolean; pairId: string }>(`/pairs/${pairId}`, {
       method: 'DELETE',
+    }),
+  /** Record that I visually verified the other device's fingerprint (V1 gate). */
+  confirmPairFingerprint: (pairId: string) =>
+    request<import('@simbridge/shared').PairDTO>(`/pairs/${pairId}/confirm`, {
+      method: 'POST',
+      body: {},
     }),
 
   // messages

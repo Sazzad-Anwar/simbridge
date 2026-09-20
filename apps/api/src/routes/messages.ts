@@ -7,11 +7,24 @@ import {
   checkClientMsgIdsExist,
 } from "../services/messages.js";
 
-const EncryptedPayloadBody = t.Object({
+const PayloadBody = t.Object({
+  // Shared ECIES fields (present in both V0 and V1).
   ciphertext: t.String({ minLength: 16, maxLength: 64_000 }),
   ephemPublicKey: t.String({ minLength: 16, maxLength: 200 }),
   nonce: t.String({ minLength: 8, maxLength: 200 }),
-  scheme: t.Literal("x25519-xsalsa20-poly1305"),
+  scheme: t.Union([
+    t.Literal("x25519-xsalsa20-poly1305"),
+    t.Literal("x25519-xsalsa20-poly1305-v1"),
+  ]),
+  // V1 signed-envelope fields (validated in the service layer).
+  version: t.Optional(t.Number()),
+  messageId: t.Optional(t.String({ maxLength: 120 })),
+  pairId: t.Optional(t.String({ maxLength: 200 })),
+  senderDeviceId: t.Optional(t.String({ maxLength: 200 })),
+  receiverDeviceId: t.Optional(t.String({ maxLength: 200 })),
+  senderSignKeyFingerprint: t.Optional(t.String({ maxLength: 200 })),
+  createdAt: t.Optional(t.String({ maxLength: 64 })),
+  signature: t.Optional(t.String({ maxLength: 400 })),
 });
 
 export const messageRoutes = new Elysia({ prefix: "/messages", tags: ["messages"] })
@@ -24,7 +37,7 @@ export const messageRoutes = new Elysia({ prefix: "/messages", tags: ["messages"
         {
           pairId: body.pairId,
           clientMsgId: body.clientMsgId,
-          payload: body.payload,
+          payload: body.payload as import("@simbridge/shared").MessagePayload,
           sim: body.sim,
           from: body.from,
           fromName: body.fromName,
@@ -36,12 +49,12 @@ export const messageRoutes = new Elysia({ prefix: "/messages", tags: ["messages"
       detail: {
         summary: "Ingest an encrypted message (REST fallback for the offline outbox)",
         description:
-          "Idempotent per (pairId, clientMsgId). The payload is stored and relayed opaquely — the backend cannot decrypt it.",
+          "Idempotent per (pairId, clientMsgId). The payload is stored and relayed opaquely — the backend cannot decrypt it. V1 signed envelopes are signature-verified against the pair's pinned sender key before storage.",
       },
       body: t.Object({
         pairId: t.String({ minLength: 4 }),
         clientMsgId: t.String({ minLength: 6, maxLength: 80 }),
-        payload: EncryptedPayloadBody,
+        payload: PayloadBody,
         sim: t.Optional(
           t.Object({
             subscriptionId: t.Number(),

@@ -9,6 +9,10 @@ import * as SecureStore from "expo-secure-store";
 const SECURE_KEYS = {
   secretKey: "simbridge.identity.secretKey",
   publicKey: "simbridge.identity.publicKey",
+  signSecretKey: "simbridge.identity.signSecretKey",
+  signPublicKey: "simbridge.identity.signPublicKey",
+  signPublicKeyFingerprint: "simbridge.identity.signPublicKeyFingerprint",
+  vaultKey: "simbridge.identity.vaultKey",
   apiKey: "simbridge.identity.apiKey",
   deviceId: "simbridge.identity.deviceId",
   token: "simbridge.identity.token",
@@ -36,6 +40,12 @@ export interface OutboxEntry {
   /** Contact name of the originating SMS sender (best-effort; optional). */
   fromName?: string;
   smsBody: string; // plaintext kept ONLY in device-local encrypted storage
+  /**
+   * The ready-to-send payload. Present for V1 signed envelopes (prepared once
+   * at enqueue so the signature + ciphertext survive retries). Legacy V0
+   * entries leave this empty and re-encrypt from `smsBody` on each try.
+   */
+  payload?: import("@simbridge/shared").MessagePayload;
   sim: { subscriptionId: number; carrierName?: string; slotIndex?: number; displayName?: string };
   status: "pending" | "sent" | "delivered" | "failed";
   attempts: number;

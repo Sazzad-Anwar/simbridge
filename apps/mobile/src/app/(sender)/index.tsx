@@ -8,6 +8,7 @@ import { router } from "expo-router";
 import QRCode from "react-native-qrcode-svg";
 import { Badge, Button, Card, Empty, Input, Muted, Row, Screen, StatusPill, Title } from "@/components/ui";
 import { DeviceIdentity } from "@/components/DeviceIdentity";
+import { FingerprintConfirm } from "@/components/FingerprintConfirm";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
 import { useScanStore } from "@/lib/scan-store";
@@ -20,6 +21,7 @@ export default function SenderPairing() {
   const refreshPairs = useDeviceStore((s) => s.refreshPairs);
   const connection = useDeviceStore((s) => s.connection);
   const device = useDeviceStore((s) => s.device);
+  const needsRepair = useDeviceStore((s) => s.needsRepair);
   const scannedReceiverId = useScanStore((s) => s.receiverDeviceId);
   const setScannedReceiverId = useScanStore((s) => s.setReceiverDeviceId);
   const [receiverId, setReceiverId] = useState("");
@@ -84,6 +86,16 @@ export default function SenderPairing() {
               deviceName={device?.name}
             />
 
+            {needsRepair ? (
+              <Card style={{ borderColor: colors.red }}>
+                <Title style={{ fontSize: 14, color: colors.red }}>Identity conflict</Title>
+                <Muted style={{ fontSize: 12 }}>
+                  This install's keys diverge from the server identity. Reinstall or
+                  remove this device and re-pair before verified messaging resumes.
+                </Muted>
+              </Card>
+            ) : null}
+
             <Card>
               <Row>
                 <Title>New pairing</Title>
@@ -132,6 +144,7 @@ export default function SenderPairing() {
         }
         renderItem={({ item }) => {
           const other = item.senderDeviceId === useDeviceStore.getState().device?.deviceId ? item.receiverName ?? item.receiverDeviceId : item.senderName ?? item.senderDeviceId;
+          const myDeviceId = useDeviceStore.getState().device?.deviceId ?? "";
           return (
             <Card style={{ marginBottom: 10 }}>
               <Row>
@@ -143,6 +156,9 @@ export default function SenderPairing() {
               ) : (
                 <Muted>Waiting for the receiver to accept the code</Muted>
               )}
+              {item.status === "active" ? (
+                <FingerprintConfirm pair={item} myDeviceId={myDeviceId} />
+              ) : null}
               <Row style={{ justifyContent: "space-between" }}>
                 <Muted style={{ fontSize: 11 }}>{new Date(item.createdAt).toLocaleString()}</Muted>
                 <Button label="Revoke" variant="danger" onPress={() => revoke(item)} />

@@ -5,6 +5,7 @@ import {
   acceptPair,
   revokePair,
   listPairs,
+  confirmPairFingerprint,
 } from "../services/pairing.js";
 import { errors } from "../utils/errors.js";
 
@@ -49,6 +50,24 @@ export const pairRoutes = new Elysia({ prefix: "/pairs", tags: ["pairing"] })
     {
       detail: { summary: "Accept a pairing request with the 6-digit code (receiver)" },
       params: t.Object({ code: t.String({ minLength: 4, maxLength: 10 }) }),
+    },
+  )
+  .post(
+    "/:pairId/confirm",
+    async ({ auth, params }) => {
+      const result = await confirmPairFingerprint(
+        { deviceId: auth.deviceId, role: auth.role },
+        params.pairId,
+      );
+      return { ok: true as const, data: result };
+    },
+    {
+      detail: {
+        summary: "Record that I verified the other device's fingerprint",
+        description:
+          "The caller has visually compared and confirmed the peer's identity fingerprint. Enables V1 signed-envelope messaging once both sides confirm.",
+      },
+      params: t.Object({ pairId: t.String({ minLength: 4 }) }),
     },
   )
   .get(

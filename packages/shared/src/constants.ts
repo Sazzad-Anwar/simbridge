@@ -24,6 +24,22 @@ export type Platform = (typeof PLATFORMS)[number];
 export const ENCRYPTION_SCHEME = "x25519-xsalsa20-poly1305" as const;
 export type EncryptionScheme = typeof ENCRYPTION_SCHEME;
 
+/** V1 signed-envelope scheme (same ECIES box, plus an Ed25519 signature over
+ * canonicalized envelope fields). Must stay in lockstep with @simbridge/crypto's
+ * CRYPTO_SCHEME so shared contracts and the crypto package never disagree. */
+export const ENCRYPTION_SCHEME_V1 = "x25519-xsalsa20-poly1305-v1" as const;
+export type EncryptionSchemeV1 = typeof ENCRYPTION_SCHEME_V1;
+
+/**
+ * Message envelope protocol versions. V0 is the pre-hardening scheme
+ * (unversioned payload, no signature). V1 is the signed, replay-protected
+ * envelope (see @simbridge/crypto). Devices advertise the version they speak.
+ */
+export const MESSAGE_PROTOCOL_V0 = 0 as const;
+export const MESSAGE_PROTOCOL_V1 = 1 as const;
+export const MESSAGE_PROTOCOL_VERSIONS = [MESSAGE_PROTOCOL_V0, MESSAGE_PROTOCOL_V1] as const;
+export type MessageProtocolVersion = (typeof MESSAGE_PROTOCOL_VERSIONS)[number];
+
 /**
  * Device `name` is the device's phone number. Normalization strips common
  * separators (spaces, dashes, parens, dots) so `+1 555 123 4567` and
@@ -55,6 +71,13 @@ export const ERROR_CODES = {
   PAIR_CODE_EXPIRED: "PAIR_CODE_EXPIRED",
   PAIR_ALREADY_ACTIVE: "PAIR_ALREADY_ACTIVE",
   RATE_LIMITED: "RATE_LIMITED",
+  /** Identity/key hardening errors. */
+  DEVICE_KEY_CHANGED: "DEVICE_KEY_CHANGED",
+  INVALID_SIGNATURE: "INVALID_SIGNATURE",
+  KEY_POP_REQUIRED: "KEY_POP_REQUIRED",
+  CHALLENGE_NOT_FOUND: "CHALLENGE_NOT_FOUND",
+  CHALLENGE_EXPIRED: "CHALLENGE_EXPIRED",
+  CHALLENGE_REUSED: "CHALLENGE_REUSED",
   INTERNAL: "INTERNAL",
 } as const;
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

@@ -70,12 +70,16 @@ export default function MessageDetail() {
             <Text style={{ color: colors.text, fontSize: 16, lineHeight: 24, fontWeight: "600" }}>
               {entry.decryptError === "no-key"
                 ? "No decryption key on this device"
-                : "Couldn't decrypt this message"}
+                : entry.decryptError === "unverified"
+                  ? "Sender not verified yet"
+                  : "Couldn't decrypt this message"}
             </Text>
             <Muted style={{ fontSize: 13 }}>
               {entry.decryptError === "no-key"
                 ? "This device has no private key stored, so the message can't be decrypted locally. Finish setup and try again."
-                : "The message was encrypted with a key this device no longer has (for example, it was sent before this account last re-registered its key). Retry after the paired sender refreshes may help."}
+                : entry.decryptError === "unverified"
+                  ? "This message arrived as a signed envelope, but you haven't verified the sender's fingerprint yet. Open Pairing, compare the sender's fingerprint (shown on their device), and confirm it — the message will then be decrypted against that verified identity."
+                  : "The message was encrypted with a key this device no longer has (for example, it was sent before this account last re-registered its key). Retry after the paired sender refreshes may help."}
             </Muted>
             <Button label="Retry decrypt" onPress={retry} />
           </Card>

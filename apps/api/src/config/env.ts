@@ -48,6 +48,7 @@ export const env = {
   jwtExpiresIn: str("JWT_EXPIRES_IN", "30d"),
   accessTokenTtlSeconds: 60 * 60 * 24 * 30,
   pairingCodeTtlMinutes: num("PAIRING_CODE_TTL_MINUTES", 10),
+  challengeTtlSeconds: num("CHALLENGE_TTL_SECONDS", 300),
   messageTtlDays: num("MESSAGE_TTL_DAYS", 7),
   auditTtlDays: num("AUDIT_TTL_DAYS", 30),
   rateLimitWindowMs: num("RATE_LIMIT_WINDOW_MS", 60_000),

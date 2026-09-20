@@ -1,40 +1,103 @@
 import { Pair } from "../db/models/pair.js";
+import type { PairDoc } from "../db/models/pair.js";
 import { Message } from "../db/models/message.js";
 import type { MessageDoc } from "../db/models/message.js";
+import { Device } from "../db/models/device.js";
 import { audit } from "../db/models/audit.js";
 import { env } from "../config/env.js";
 import { newId } from "../utils/ids.js";
 import { errors } from "../utils/errors.js";
-import { getIo } from "../realtime/io.js";
-import { deviceRoom, pairRoom, ENCRYPTION_SCHEME, SocketEvents } from "@simbridge/shared";
+import { tryGetIo } from "../realtime/io.js";
+import { deviceRoom, pairRoom, ENCRYPTION_SCHEME, ENCRYPTION_SCHEME_V1, SocketEvents } from "@simbridge/shared";
+import { decodeEnvelopeV1, verifyEnvelopeV1 } from "@simbridge/crypto";
+import { CryptoError } from "@simbridge/crypto";
 import type {
   AckInput,
   AckResult,
   EncryptedPayload,
+  EnvelopePayloadV1,
   ExistsInput,
   ExistsResult,
   MessageDTO,
+  MessagePayload,
   Role,
   SendMessageInput,
   SendMessageResult,
   SyncResult,
 } from "@simbridge/shared";
 
-function assertPayload(payload: EncryptedPayload): void {
+/**
+ * Validate an incoming payload and, for V1 envelopes, cryptographically verify
+ * the sender's Ed25519 signature against the pair's pinned sender key. Returns
+ * the opaque payload to store/relay (never plaintext).
+ */
+function preparePayload(
+  payload: unknown,
+  pair: Pick<PairDoc, "pairId" | "receiverDeviceId">,
+  senderDevice: { deviceId: string; signingPublicKey?: string },
+): MessagePayload {
   if (!payload || typeof payload !== "object") throw errors.validation("payload is required");
-  if (payload.scheme !== ENCRYPTION_SCHEME) {
-    throw errors.validation(`payload.scheme must be "${ENCRYPTION_SCHEME}"`);
-  }
-  for (const field of ["ciphertext", "ephemPublicKey", "nonce"] as const) {
-    const v = payload[field];
-    if (typeof v !== "string" || v.length < 16 || v.length > 64_000) {
-      throw errors.validation(`payload.${field} is missing or has invalid length`);
+  const p = payload as Record<string, unknown>;
+
+  // Legacy V0: unversioned ECIES box (no sender signature).
+  if (p.scheme === ENCRYPTION_SCHEME) {
+    if (p.version !== undefined || p.signature !== undefined) {
+      throw errors.validation("Invalid legacy payload: V0 must not carry V1 envelope fields");
     }
+    for (const field of ["ciphertext", "ephemPublicKey", "nonce"] as const) {
+      const v = p[field];
+      if (typeof v !== "string" || v.length < 16 || v.length > 64_000) {
+        throw errors.validation(`payload.${field} is missing or has invalid length`);
+      }
+    }
+    return p as unknown as EncryptedPayload;
   }
+
+  // V1 signed envelope.
+  if (p.scheme === ENCRYPTION_SCHEME_V1) {
+    let envelope: EnvelopePayloadV1;
+    try {
+      envelope = decodeEnvelopeV1(payload);
+    } catch (err) {
+      throw errors.validation(err instanceof CryptoError ? err.message : "Invalid V1 envelope");
+    }
+
+    // Bind the envelope to THIS pair and THIS authenticated sender — the
+    // signature alone doesn't stop an envelope being replayed into another pair.
+    if (envelope.pairId !== pair.pairId) {
+      throw errors.validation(`envelope.pairId does not match the pair it was sent to (${envelope.pairId} vs ${pair.pairId})`);
+    }
+    if (envelope.receiverDeviceId !== pair.receiverDeviceId) {
+      throw errors.validation("envelope.receiverDeviceId does not match this pair's receiver");
+    }
+    if (envelope.senderDeviceId !== senderDevice.deviceId) {
+      throw errors.forbidden("envelope.senderDeviceId does not match the authenticated sender");
+    }
+    if (!senderDevice.signingPublicKey) {
+      throw errors.validation("The sending device has no registered signing key — cannot verify V1 envelopes");
+    }
+
+    let valid = false;
+    try {
+      valid = verifyEnvelopeV1(envelope, senderDevice.signingPublicKey, envelope.signature);
+    } catch {
+      valid = false;
+    }
+    if (!valid) {
+      throw errors.invalidSignature("Envelope signature verification failed (sender key mismatch or tampering)");
+    }
+    return envelope;
+  }
+
+  throw errors.validation(`Unknown payload scheme: ${String(p.scheme)}`);
+}
+
+/** The envelope's own messageId, when the payload is a V1 envelope. */
+function envelopeMessageId(payload: MessagePayload): string | null {
+  return payload.scheme === ENCRYPTION_SCHEME_V1 ? (payload as EnvelopePayloadV1).messageId : null;
 }
 
 export function toMessageDTO(doc: MessageDoc): MessageDTO {
-  const { ciphertext, ephemPublicKey, nonce, scheme } = doc.payload;
   return {
     messageId: doc.messageId,
     pairId: doc.pairId,
@@ -44,12 +107,7 @@ export function toMessageDTO(doc: MessageDoc): MessageDTO {
     seq: doc.seq,
     from: doc.from,
     fromName: doc.fromName,
-    payload: {
-      ciphertext,
-      ephemPublicKey,
-      nonce,
-      scheme: scheme as typeof ENCRYPTION_SCHEME,
-    },
+    payload: doc.payload,
     sim:
       doc.sim?.subscriptionId !== undefined
         ? {
@@ -86,8 +144,35 @@ export async function sendMessage(
   input: SendMessageInput,
 ): Promise<SendMessageResult> {
   if (!input?.pairId || !input?.clientMsgId) throw errors.validation("pairId and clientMsgId are required");
-  assertPayload(input.payload);
   const pair = await assertActiveSender(input.pairId, device.deviceId);
+
+  const senderDevice = await Device.findOne({ deviceId: device.deviceId }).lean();
+  const payload = preparePayload(input.payload, pair, {
+    deviceId: device.deviceId,
+    signingPublicKey: senderDevice?.signingPublicKey,
+  });
+
+  // For V1 envelopes, keep the pair pin in lockstep with the sender's key. A
+  // rotation clears the receiver's confirmation so they must re-verify before
+  // V1 resumes (the old pin would still be reported to them otherwise).
+  if (payload.scheme === ENCRYPTION_SCHEME_V1) {
+    const env = payload as EnvelopePayloadV1;
+    if (
+      pair.pinnedSenderSignKey !== senderDevice?.signingPublicKey ||
+      pair.pinnedSenderSignKeyFingerprint !== senderDevice?.signingKeyFingerprint
+    ) {
+      await Pair.updateOne(
+        { pairId: pair.pairId, status: "active" },
+        {
+          $set: {
+            pinnedSenderSignKey: senderDevice?.signingPublicKey,
+            pinnedSenderSignKeyFingerprint: senderDevice?.signingKeyFingerprint,
+            receiverFingerprintConfirmed: false,
+          },
+        },
+      );
+    }
+  }
 
   // Idempotency: retries (offline outbox) with the same clientMsgId are safe.
   const existing = await Message.findOne({
@@ -102,6 +187,26 @@ export async function sendMessage(
       status: existing.status,
       deduplicated: true,
     };
+  }
+
+  // Replay protection: a V1 envelope carries its own signed messageId which must
+  // be unique within the pair — prevents replaying the same signed envelope with
+  // a different clientMsgId.
+  const envMessageId = envelopeMessageId(payload);
+  if (envMessageId) {
+    const replay = await Message.findOne({
+      pairId: input.pairId,
+      "payload.messageId": envMessageId,
+    }).lean<MessageDoc>();
+    if (replay) {
+      return {
+        messageId: replay.messageId,
+        pairId: replay.pairId,
+        seq: replay.seq,
+        status: replay.status,
+        deduplicated: true,
+      };
+    }
   }
 
   // Atomically allocate the per-pair sequence number.
@@ -124,12 +229,7 @@ export async function sendMessage(
       seq,
       from: input.from,
       fromName: input.fromName,
-      payload: {
-        ciphertext: input.payload.ciphertext,
-        ephemPublicKey: input.payload.ephemPublicKey,
-        nonce: input.payload.nonce,
-        scheme: input.payload.scheme,
-      },
+      payload,
       sim: input.sim
         ? {
             subscriptionId: input.sim.subscriptionId,
@@ -170,12 +270,17 @@ export async function sendMessage(
   const dto = toMessageDTO(doc.toObject() as MessageDoc);
 
   // Real-time delivery to every socket of the receiver device.
-  const io = getIo();
-  io.to(deviceRoom(pair.receiverDeviceId)).emit(SocketEvents.MESSAGE_INCOMING, dto);
+  const io = tryGetIo();
+  io?.to(deviceRoom(pair.receiverDeviceId)).emit(SocketEvents.MESSAGE_INCOMING, dto);
   audit("message.received", {
     deviceId: device.deviceId,
     pairId: pair.pairId,
-    meta: { seq, ciphertextBytes: input.payload.ciphertext.length },
+    meta: {
+      seq,
+      scheme: payload.scheme,
+      ciphertextBytes:
+        "ciphertext" in payload ? payload.ciphertext.length : 0,
+    },
   });
 
   return { messageId: dto.messageId, pairId: dto.pairId, seq, status: "sent", deduplicated: false };
@@ -207,9 +312,9 @@ export async function acknowledgeMessages(
       .select("messageId pairId roomId deliveredAt")
       .lean<Array<{ messageId: string; pairId: string; roomId: string; deliveredAt: Date }>>();
 
-    const io = getIo();
+    const io = tryGetIo();
     for (const m of delivered) {
-      io.to(pairRoom(m.roomId)).emit(SocketEvents.MESSAGE_DELIVERED, {
+      io?.to(pairRoom(m.roomId)).emit(SocketEvents.MESSAGE_DELIVERED, {
         messageId: m.messageId,
         pairId: m.pairId,
         deliveredAt: m.deliveredAt?.toISOString?.() ?? new Date().toISOString(),

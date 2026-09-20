@@ -38,5 +38,19 @@ export const errors = {
     new ApiError(429, ERROR_CODES.RATE_LIMITED, `Too many requests. Retry in ${retryAfterSeconds}s`, {
       retryAfterSeconds,
     }),
+  /**
+   * The submitted device keys differ from the registered identity. Never
+   * silently overwrite — require an explicit, user-confirmed key rotation
+   * flow (authenticated via proof of possession of the OLD signing key).
+   */
+  deviceKeyChanged: (msg = "Device keys differ from the registered identity; re-verification required") =>
+    new ApiError(409, ERROR_CODES.DEVICE_KEY_CHANGED, msg),
+  invalidSignature: (msg = "Signature verification failed") =>
+    new ApiError(401, ERROR_CODES.INVALID_SIGNATURE, msg),
+  keyPoPRequired: (msg = "A signed proof-of-possession challenge is required for this operation") =>
+    new ApiError(422, ERROR_CODES.KEY_POP_REQUIRED, msg),
+  challengeNotFound: () => new ApiError(404, ERROR_CODES.CHALLENGE_NOT_FOUND, "Challenge not found"),
+  challengeExpired: () => new ApiError(410, ERROR_CODES.CHALLENGE_EXPIRED, "Challenge has expired"),
+  challengeReused: () => new ApiError(409, ERROR_CODES.CHALLENGE_REUSED, "Challenge was already used"),
   internal: (msg = "Internal server error") => new ApiError(500, ERROR_CODES.INTERNAL, msg),
 };

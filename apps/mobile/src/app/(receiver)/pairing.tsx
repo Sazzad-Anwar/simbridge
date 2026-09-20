@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, RefreshControl } from "react-native";
 import { Button, Card, Empty, Input, Muted, Row, Screen, StatusPill, Title } from "@/components/ui";
+import { FingerprintConfirm } from "@/components/FingerprintConfirm";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
 import { api } from "@/lib/api";
@@ -8,6 +9,8 @@ import { api } from "@/lib/api";
 export default function ReceiverPairing() {
   const pairs = useDeviceStore((s) => s.pairs);
   const refreshPairs = useDeviceStore((s) => s.refreshPairs);
+  const device = useDeviceStore((s) => s.device);
+  const needsRepair = useDeviceStore((s) => s.needsRepair);
   const visiblePairs = pairs.filter((p) => p.status !== "revoked");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -58,6 +61,15 @@ export default function ReceiverPairing() {
           }
           ListHeaderComponent={
             <Card style={{ marginBottom: 6 }}>
+              {needsRepair ? (
+                <Card style={{ borderColor: colors.red }}>
+                  <Title style={{ fontSize: 14, color: colors.red }}>Identity conflict</Title>
+                  <Muted style={{ fontSize: 12 }}>
+                    This install's keys diverge from the server identity. Remove this
+                    device and re-pair before verified messaging resumes.
+                  </Muted>
+                </Card>
+              ) : null}
               <Title>Accept a pairing request</Title>
               <Muted>
                 Ask the sender for the 6-digit code shown in their Pairing tab.
@@ -94,6 +106,9 @@ export default function ReceiverPairing() {
                     ? "Waiting for you to accept — enter the code above."
                     : "Revoked."}
               </Muted>
+              {item.status === "active" ? (
+                <FingerprintConfirm pair={item} myDeviceId={device?.deviceId ?? ""} />
+              ) : null}
               <Muted style={{ fontSize: 11 }}>{new Date(item.createdAt).toLocaleString()}</Muted>
             </Card>
           )}

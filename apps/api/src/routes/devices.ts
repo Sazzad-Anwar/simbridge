@@ -4,6 +4,13 @@ import { Device } from "../db/models/device.js";
 import { SimSubscription } from "../db/models/sim.js";
 import { toDeviceDTO } from "../services/pairing.js";
 import { errors } from "../utils/errors.js";
+import { consumeChallenge } from "../services/challenges.js";
+import {
+  base64ToBytes,
+  fingerprintOf,
+  isValidSigningPublicKey,
+  verifyKeyPossession,
+} from "@simbridge/crypto";
 import { isValidPhoneNumber, normalizePhoneNumber } from "@simbridge/shared";
 import type { DeviceDTO, SimInfo } from "@simbridge/shared";
 
@@ -63,14 +70,76 @@ export const deviceRoutes = new Elysia({ prefix: "/me", tags: ["devices"] })
       }
       if (body.pushToken !== undefined) patch.pushToken = body.pushToken;
 
+      // --- Signing-key add/rotation (PoP-gated) ----------------------------
+      // Adding a signing key hardens this device (legacy V0 -> V1). Rotating
+      // it must be proven with a signature from the EXISTING registered key,
+      // so a leaked secondary key alone can never self-replace the identity.
+      if (
+        body.signingPublicKey !== undefined ||
+        body.signingKeyFingerprint !== undefined ||
+        body.challengeId !== undefined ||
+        body.challengePoP !== undefined
+      ) {
+        const { signingPublicKey, challengeId, challengePoP } = body;
+        // All-or-nothing: a partial signing-key update is a client bug.
+        if (!signingPublicKey || !challengeId || !challengePoP) {
+          throw errors.validation(
+            "signingPublicKey, challengeId and challengePoP must be provided together",
+          );
+        }
+        if (!isValidSigningPublicKey(signingPublicKey)) {
+          throw errors.validation("signingPublicKey must be a base64-encoded 32-byte Ed25519 key");
+        }
+
+        const current = await Device.findOne({ deviceId: auth.deviceId })
+          .select("publicKey signingPublicKey")
+          .lean<{ publicKey: string; signingPublicKey?: string } | null>();
+        if (!current) throw errors.notFound("device");
+
+        const expectedFingerprint = fingerprintOf(current.publicKey, signingPublicKey);
+        if (body.signingKeyFingerprint && body.signingKeyFingerprint !== expectedFingerprint) {
+          throw errors.validation("signingKeyFingerprint does not match the supplied keys");
+        }
+
+        const challenge = base64ToBytes(
+          await consumeChallenge({
+            challengeId,
+            purpose: "rekey",
+            deviceId: auth.deviceId,
+          }),
+        );
+
+        // Rotating an existing key must be proven with the CURRENTLY registered
+        // key; adding a key to a legacy device is self-attestation. Both are one
+        // single-use consumed challenge. Verifying against current==submitted
+        // covers the idempotent re-assertion case naturally.
+        const attestationKey = current.signingPublicKey ?? signingPublicKey;
+        if (!verifyKeyPossession(attestationKey, challenge, challengePoP)) {
+          throw errors.invalidSignature("Proof of possession failed — signing key not updated");
+        }
+
+        patch.signingPublicKey = signingPublicKey;
+        patch.signingKeyFingerprint = expectedFingerprint;
+        patch.keysProvenAt = new Date();
+        patch.protocolVersion = 1;
+      }
+
       await Device.updateOne({ deviceId: auth.deviceId }, { $set: patch });
       return { ok: true as const, data: await deviceWithSims(auth.deviceId) };
     },
     {
-      detail: { summary: "Update device profile (name = phone number, push token)" },
+      detail: {
+        summary: "Update device profile (name = phone number, push token, signing key)",
+        description:
+          "Adding or rotating the device signing key requires a signed proof-of-possession over a fresh single-use /auth/challenge/rekey challenge. Rotation of an existing key must be proven with the currently registered key.",
+      },
       body: t.Object({
         name: t.Optional(t.String({ minLength: 1, maxLength: 30 })),
         pushToken: t.Optional(t.String({ maxLength: 500 })),
+        signingPublicKey: t.Optional(t.String({ minLength: 40, maxLength: 100 })),
+        signingKeyFingerprint: t.Optional(t.String({ minLength: 40, maxLength: 200 })),
+        challengeId: t.Optional(t.String({ minLength: 4, maxLength: 64 })),
+        challengePoP: t.Optional(t.String({ minLength: 64, maxLength: 200 })),
       }),
     },
   )

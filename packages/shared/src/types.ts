@@ -1,6 +1,7 @@
 import type {
   DeliveryStatus,
   EncryptionScheme,
+  EncryptionSchemeV1,
   PairStatus,
   Platform,
   Role,
@@ -16,12 +17,27 @@ export interface SimInfo {
   isActive?: boolean;
 }
 
+/** Identity key snapshot exposed on a pair for fingerprint confirmation. */
+export interface PairIdentity {
+  /** X25519 public key (existing pairing key). */
+  publicKey: string;
+  /** Ed25519 signing public key (V1). Absent on legacy V0 devices. */
+  signingPublicKey?: string;
+  /** Fingerprint = hash(encPublicKey ‖ signPublicKey); what users compare. */
+  signingKeyFingerprint?: string;
+}
+
 export interface DeviceDTO {
   deviceId: string;
   name: string;
   platform: Platform;
   role: Role;
   publicKey: string;
+  /** Base64 Ed25519 signing public key (V1 hardening). Absent on legacy V0 devices. */
+  signingPublicKey?: string;
+  signingKeyFingerprint?: string;
+  /** Message protocol version the device communicates at (0 = legacy V0, 1 = V1). */
+  protocolVersion: 0 | 1;
   sims: SimInfo[];
   status: "online" | "offline";
   lastSeenAt: string;
@@ -45,6 +61,15 @@ export interface TokenResult {
   expiresIn: number;
 }
 
+/** A single-use proof-of-possession challenge issued by POST /auth/challenge. */
+export interface ChallengeToken {
+  challengeId: string;
+  /** Base64-encoded challenge bytes; devices sign them with their Ed25519 key. */
+  challenge: string;
+  purpose: "register" | "rekey";
+  expiresAt: string;
+}
+
 export interface PairDTO {
   pairId: string;
   status: PairStatus;
@@ -55,6 +80,22 @@ export interface PairDTO {
   /** Identity public keys — the sender encrypts with receiverPublicKey. */
   senderPublicKey?: string;
   receiverPublicKey?: string;
+  /** V1 identity snapshots (present on hardened devices). */
+  senderSigningPublicKey?: string;
+  senderSigningKeyFingerprint?: string;
+  receiverSigningPublicKey?: string;
+  receiverSigningKeyFingerprint?: string;
+  /**
+   * Message protocol this pair communicates at: 1 when BOTH devices are
+   * hardened (V1), 0 when either side still speaks legacy V0.
+   */
+  protocolVersion: 0 | 1;
+  /**
+   * Whether each side has explicitly verified the OTHER side's fingerprint.
+   * V1 messaging is only enabled when both are true.
+   */
+  senderFingerprintConfirmed: boolean;
+  receiverFingerprintConfirmed: boolean;
   /** Only present while the pair is pending (sender side). */
   code?: string;
   codeExpiresAt?: string;
@@ -73,6 +114,7 @@ export interface AcceptPairResult {
   senderDeviceId: string;
   senderName: string;
   senderPublicKey: string;
+  senderSigningPublicKey?: string;
 }
 
 /**
@@ -86,6 +128,29 @@ export interface EncryptedPayload {
   scheme: EncryptionScheme;
 }
 
+/**
+ * V1 signed envelope payload. Must match @simbridge/crypto's envelope exactly:
+ * every field below is part of the canonicalized, Ed25519-signed content.
+ */
+export interface EnvelopePayloadV1 {
+  version: 1;
+  scheme: EncryptionSchemeV1;
+  /** Globally-unique id, chosen by the sender and covered by the signature. */
+  messageId: string;
+  pairId: string;
+  senderDeviceId: string;
+  receiverDeviceId: string;
+  senderSignKeyFingerprint: string;
+  ephemPublicKey: string;
+  nonce: string;
+  ciphertext: string;
+  createdAt: string;
+  signature: string;
+}
+
+/** What the backend relays: either the legacy V0 payload or a signed V1 envelope. */
+export type MessagePayload = EncryptedPayload | EnvelopePayloadV1;
+
 export interface MessageDTO {
   messageId: string;
   pairId: string;
@@ -97,7 +162,7 @@ export interface MessageDTO {
   from?: string;
   /** Contact name for the originating SMS sender, resolved on the SIM phone. */
   fromName?: string;
-  payload: EncryptedPayload;
+  payload: MessagePayload;
   sim?: {
     subscriptionId: number;
     carrierName?: string;
@@ -113,7 +178,7 @@ export interface MessageDTO {
 export interface SendMessageInput {
   pairId: string;
   clientMsgId: string;
-  payload: EncryptedPayload;
+  payload: MessagePayload;
   sim?: MessageDTO["sim"];
   from?: string;
   fromName?: string;

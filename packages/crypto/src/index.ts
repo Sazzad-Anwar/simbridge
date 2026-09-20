@@ -7,17 +7,11 @@
  *      and a random 24-byte nonce, then seals the plaintext with
  *      NaCl `box` (X25519 + XSalsa20-Poly1305) against the RECEIVER's public key.
  *   3. Only the receiver's private key can open the box.
+ *   4. V1 messages additionally carry an Ed25519 signature over canonicalized
+ *      envelope fields (see protocol.ts / envelope.ts / sign.ts).
  *
  * The backend only ever sees `{ ciphertext, ephemPublicKey, nonce }` —
  * it stores and relays opaque blobs and can never read message content.
- *
- * Randomness note: all randomness is drawn through `randomBytes()`, which
- * reads `globalThis.crypto.getRandomValues` LAZILY at call time. Key pairs
- * are therefore built from our own randomness + `nacl.scalarMult.base`
- * instead of `nacl.box.keyPair()`, which would depend on tweetnacl's PRNG
- * captured at module-load time (fragile on React Native). The mobile app
- * still polyfills `globalThis.crypto` with expo-crypto at startup
- * (apps/mobile/src/lib/random-polyfill.ts).
  */
 
 import nacl from "tweetnacl";
@@ -29,26 +23,60 @@ import {
   bytesToUtf8,
   utf8ToBytes,
 } from "./base64";
+import { randomBytes } from "./random";
 
 export { bytesToBase64, base64ToBytes, utf8ToBytes, bytesToUtf8 };
+export { randomBytes };
+
+// Hardening (V1) protocol surface — additive; legacy exports above stay as-is.
+export { CRYPTO_ERROR_CODES, CryptoError, cryptoError, type CryptoErrorCode } from "./errors";
+export {
+  CRYPTO_PROTOCOL_VERSION,
+  CRYPTO_SCHEME,
+  LEGACY_V0_SCHEME,
+  SUPPORTED_SCHEMES,
+  isKnownScheme,
+  isKnownVersion,
+  type SupportedScheme,
+} from "./protocol";
+export {
+  CANONICAL_MAGIC,
+  CANONICAL_FIELD_KEYS,
+  canonicalizeV1,
+  type CanonicalFieldKey,
+  type EnvelopeV1Fields,
+} from "./canonicalize";
+export { signEnvelopeV1, verifyEnvelopeV1 } from "./sign";
+export {
+  EncryptedEnvelopeV1,
+  encryptMessageV1,
+  decryptEnvelopeV1,
+  decodeEnvelopeV1,
+  normalizePayload,
+  toEnvelopeV1Fields,
+  type EncryptMessageV1Input,
+  type DecryptEnvelopeV1Input,
+  type NormalizedPayload,
+} from "./envelope";
+export {
+  DeviceIdentity,
+  generateDeviceIdentity,
+  generateSigningKeyPair,
+  fingerprintOf,
+} from "./identity";
+export { proveKeyPossession, verifyKeyPossession, isValidSigningPublicKey } from "./pop";
+export {
+  VAULT_KEY_LENGTH,
+  generateVaultKey,
+  encryptLocal,
+  decryptLocal,
+  vaultKeyMissingError,
+  localStorageRecoveryRequiredError,
+} from "./local";
 
 export interface KeyPairB64 {
   publicKey: string;
   secretKey: string;
-}
-
-/** CSPRNG that works on Node.js and React Native. */
-export function randomBytes(length: number): Uint8Array {
-  const g = globalThis as { crypto?: { getRandomValues(b: Uint8Array): Uint8Array } };
-  const crypto = g.crypto;
-  if (!crypto || typeof crypto.getRandomValues !== "function") {
-    throw new Error(
-      "crypto.getRandomValues unavailable. On React Native, polyfill it with expo-crypto before importing @simbridge/crypto.",
-    );
-  }
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return bytes;
 }
 
 /** Generate a device identity key pair (base64 encoded X25519). */

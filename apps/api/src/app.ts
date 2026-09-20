@@ -13,7 +13,7 @@ import { statusRoutes } from './routes/status.js'
 
 /** Route buckets with dedicated limits (requests per window). */
 const RATE_BUCKETS: Array<{ match: RegExp; max: number }> = [
-  { match: /^\/auth\/(register|token)$/, max: 60 },
+  { match: /^\/auth\/(register|token|challenge)/, max: 60 },
   { match: /^\/messages/, max: 600 },
 ]
 
