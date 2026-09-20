@@ -21,6 +21,9 @@
     "db:down": "docker compose down",
     "mongo:local": "bash scripts/dev-mongo.sh",
     "test": "turbo run test",
+    "release": "bash scripts/release.sh",
+    "release:major": "bash scripts/release.sh --major",
+    "release:minor": "bash scripts/release.sh --minor",
     "smoke": "pnpm --filter @simbridge/api smoke"
   },
   "devDependencies": {

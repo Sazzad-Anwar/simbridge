@@ -28,6 +28,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::production release requires refs/tags/vMAJOR.MINOR.PATCH, got '$TAG'."
+            exit 1
+          fi
+          echo "Release tag '$TAG' is a valid semantic version."
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -38,6 +49,19 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+
+      - name: Validate Android versionName
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          VERSION_NAME="$(node -p "require('./apps/mobile/app.json').expo.version")"
+          if [[ "v${VERSION_NAME}" != "$TAG" ]]; then
+            echo "::error::Git tag '$TAG' does not match Android versionName '$VERSION_NAME'."
+            echo "::error::Bump apps/mobile/app.json \"version\" (and \"android.versionCode\") in the release commit before tagging."
+            exit 1
+          fi
+          echo "Version validation: PASS (tag $TAG / versionName $VERSION_NAME)"
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -107,6 +131,17 @@ jobs:
           path: artifacts/SIMBridge.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Confirm release tag before publishing
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::refusing to publish a release for invalid tag '$TAG'."
+            exit 1
+          fi
+          echo "Publishing release for tag '$TAG'."
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
