@@ -99,6 +99,8 @@ export interface ServerToClientEvents {
     deviceId: string;
     role: DeviceDTO["role"];
     online: boolean;
+    /** ISO timestamp of the status change (peer falls back to showing this as "last seen"). */
+    lastSeenAt?: string;
   }) => void;
 
   [SocketEvents.SYNC_HINT]: (payload: { pairId: string; pendingCount?: number }) => void;

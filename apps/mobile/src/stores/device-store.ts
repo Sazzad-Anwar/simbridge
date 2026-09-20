@@ -63,6 +63,8 @@ interface DeviceState {
   refreshPairs: () => Promise<void>;
   refreshSims: (sims?: SimInfo[]) => Promise<void>;
   setConnection: (c: ConnectionStatus) => Promise<void>;
+  /** Patch the live presence of a paired peer onto every pair it belongs to. */
+  applyPeerPresence: (deviceId: string, online: boolean, lastSeenAt?: string) => void;
   setNeedsRepair: (flag: boolean) => void;
   reset: () => Promise<void>;
 }
@@ -305,6 +307,18 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
 
   async setConnection(connection) {
     if (get().connection !== connection) set({ connection });
+  },
+
+  applyPeerPresence(deviceId, online, lastSeenAt) {
+    const pairs = get().pairs.map((p): PairDTO => {
+      if (p.senderDeviceId !== deviceId && p.receiverDeviceId !== deviceId) return p;
+      return {
+        ...p,
+        peerStatus: online ? "online" : "offline",
+        peerLastSeenAt: lastSeenAt ?? p.peerLastSeenAt,
+      };
+    });
+    set({ pairs });
   },
 
   setNeedsRepair(flag) {

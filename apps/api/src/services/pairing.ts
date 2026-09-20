@@ -69,6 +69,8 @@ export async function decoratePairs(pairs: PairDoc[], myDeviceId: string): Promi
   return pairs.map((p) => {
     const sender = p.senderDeviceId === myDeviceId ? me : others.find((o) => o.deviceId === p.senderDeviceId);
     const receiver = p.receiverDeviceId === myDeviceId ? me : others.find((o) => o.deviceId === p.receiverDeviceId);
+    // The counterpart's live presence, from this device's perspective.
+    const peer = p.senderDeviceId === myDeviceId ? receiver : sender;
     // Effective protocol: V1 only when BOTH devices are hardened.
     const bothHardened =
       sender?.protocolVersion === 1 && receiver?.protocolVersion === 1;
@@ -91,6 +93,8 @@ export async function decoratePairs(pairs: PairDoc[], myDeviceId: string): Promi
       protocolVersion: bothHardened && pinnedSignKey ? 1 : 0,
       senderFingerprintConfirmed: !!p.senderFingerprintConfirmed,
       receiverFingerprintConfirmed: !!p.receiverFingerprintConfirmed,
+      peerStatus: peer ? (isDeviceOnline(peer.deviceId) ? "online" : "offline") : undefined,
+      peerLastSeenAt: peer?.lastSeenAt?.toISOString(),
     });
   });
 }

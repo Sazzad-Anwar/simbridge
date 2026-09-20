@@ -14,16 +14,34 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, statusColor } from "../constants/theme";
 
 export function Screen({
   children,
   style,
+  safeArea = false,
 }: {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** Pad top/bottom by the device safe-area insets (for headerless, full-bleed screens). */
+  safeArea?: boolean;
 }) {
-  return <View style={[styles.screen, style]}>{children}</View>;
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={[
+        styles.screen,
+        {
+          paddingTop: 16 + (safeArea ? insets.top : 0),
+          paddingBottom: 16 + (safeArea ? insets.bottom : 0),
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 export function Card({
@@ -66,6 +84,34 @@ export function StatusPill({ status }: { status: string }) {
       <Text style={[styles.pillText, { color }]}>{status.toUpperCase()}</Text>
     </View>
   );
+}
+
+/** Live presence of a paired peer: Online (green dot) or Offline (+ last seen). */
+export function PresencePill({
+  status,
+  lastSeenAt,
+}: {
+  status?: "online" | "offline";
+  lastSeenAt?: string;
+}) {
+  if (!status) return null;
+  const online = status === "online";
+  const color = online ? colors.green : colors.textFaint;
+  const lastSeen = online || !lastSeenAt ? null : formatLastSeen(lastSeenAt);
+  return (
+    <Row style={{ gap: 5 }}>
+      <View style={[styles.presenceDot, { backgroundColor: color }]} />
+      <Text style={{ color, fontSize: 11, fontWeight: "700" }}>{online ? "Online" : "Offline"}</Text>
+      {lastSeen ? <Text style={{ color: colors.textFaint, fontSize: 11 }}>{lastSeen}</Text> : null}
+    </Row>
+  );
+}
+
+function formatLastSeen(iso: string): string {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return "";
+  const time = t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `· last seen ${time}`;
 }
 
 export function Button({
@@ -159,6 +205,7 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 11, fontWeight: "600" },
   pill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   pillText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
+  presenceDot: { width: 8, height: 8, borderRadius: 4, alignSelf: "center" },
   button: {
     borderRadius: 12,
     paddingVertical: 12,

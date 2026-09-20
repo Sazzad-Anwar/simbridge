@@ -45,7 +45,7 @@ export default function RoleSelect() {
   }
 
   return (
-    <Screen style={{ justifyContent: 'center', gap: 16 }}>
+    <Screen safeArea style={{ justifyContent: 'center', gap: 16 }}>
       <Title style={{ fontSize: 24, textAlign: 'center' }}>
         Choose your role
       </Title>

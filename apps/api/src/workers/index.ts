@@ -10,6 +10,7 @@ import { Pair } from "../db/models/pair.js";
 import { Message } from "../db/models/message.js";
 import { logger } from "../utils/logger.js";
 import { isDeviceOnline } from "../realtime/io.js";
+import { emitDevicePresence } from "../realtime/presence.js";
 import { deviceRoom, SocketEvents } from "@simbridge/shared";
 import { sendPush } from "../services/notifier.js";
 import type { SimBridgeServer } from "../realtime/io.js";
@@ -33,8 +34,8 @@ export function startWorkers(io: SimBridgeServer): void {
           await Device.updateOne({ deviceId: d.deviceId }, { $set: { lastSeenAt: new Date() } });
           continue;
         }
-        await Device.updateOne({ deviceId: d.deviceId }, { $set: { status: "offline" } });
-        io.emit(SocketEvents.DEVICE_PRESENCE, { deviceId: d.deviceId, role: d.role as "sender" | "receiver", online: false });
+        await Device.updateOne({ deviceId: d.deviceId }, { $set: { status: "offline", lastSeenAt: new Date() } });
+        void emitDevicePresence(d.deviceId, d.role as "sender" | "receiver", false);
         logger.debug("worker: forced device offline", { deviceId: d.deviceId });
       }
     } catch (err) {

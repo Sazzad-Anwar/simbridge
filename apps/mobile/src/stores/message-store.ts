@@ -735,6 +735,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       void deviceStore.setConnection('offline')
     })
 
+    socket.on('device:presence', ({ deviceId, online, lastSeenAt }) => {
+      void useDeviceStore.getState().applyPeerPresence(deviceId, online, lastSeenAt)
+    })
+
     socket.on('message:incoming', (msg: MessageDTO) => {
       const inbox = [
         { ...msg },

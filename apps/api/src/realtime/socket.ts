@@ -6,6 +6,7 @@ import { verifyAccessToken } from "../auth/tokens.js";
 import { logger } from "../utils/logger.js";
 import { sendMessage, acknowledgeMessages, syncMessages } from "../services/messages.js";
 import { presenceConnect, presenceDisconnect } from "./io.js";
+import { emitDevicePresence } from "./presence.js";
 import type { SimBridgeServer, SimBridgeSocket } from "./io.js";
 import {
   deviceRoom,
@@ -71,8 +72,8 @@ export function setupRealtime(io: SimBridgeServer): void {
       const pairs = await activePairsFor(deviceId);
       for (const p of pairs) socket.join(pairRoom(p.roomId));
 
-      // Presence broadcast.
-      io.emit(SocketEvents.DEVICE_PRESENCE, { deviceId, role, online: true });
+      // Presence broadcast — scoped to the devices this one is paired with.
+      void emitDevicePresence(deviceId, role, true, new Date().toISOString());
 
       // Fetch-missed-messages hint (step 7 of the flow).
       for (const p of pairs) {
@@ -131,7 +132,7 @@ export function setupRealtime(io: SimBridgeServer): void {
           { deviceId },
           { $set: { status: "offline", lastSeenAt: new Date() } },
         ).catch(() => undefined);
-        io.emit(SocketEvents.DEVICE_PRESENCE, { deviceId, role, online: false });
+        void emitDevicePresence(deviceId, role, false, new Date().toISOString());
         audit("device.offline", { deviceId });
         logger.debug("device went offline", { deviceId });
       }

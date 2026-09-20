@@ -1,49 +1,68 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, KeyboardAvoidingView, Platform, RefreshControl } from "react-native";
-import { Button, Card, Empty, Input, Muted, Row, Screen, StatusPill, Title } from "@/components/ui";
-import { FingerprintConfirm } from "@/components/FingerprintConfirm";
-import { colors } from "@/constants/theme";
-import { useDeviceStore } from "@/stores/device-store";
-import { api } from "@/lib/api";
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  RefreshControl,
+} from 'react-native'
+import {
+  Button,
+  Card,
+  Empty,
+  Input,
+  Muted,
+  PresencePill,
+  Row,
+  Screen,
+  StatusPill,
+  Title,
+} from '@/components/ui'
+import { FingerprintConfirm } from '@/components/FingerprintConfirm'
+import { colors } from '@/constants/theme'
+import { useDeviceStore } from '@/stores/device-store'
+import { api } from '@/lib/api'
 
 export default function ReceiverPairing() {
-  const pairs = useDeviceStore((s) => s.pairs);
-  const refreshPairs = useDeviceStore((s) => s.refreshPairs);
-  const device = useDeviceStore((s) => s.device);
-  const needsRepair = useDeviceStore((s) => s.needsRepair);
-  const visiblePairs = pairs.filter((p) => p.status !== "revoked");
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const pairs = useDeviceStore((s) => s.pairs)
+  const refreshPairs = useDeviceStore((s) => s.refreshPairs)
+  const device = useDeviceStore((s) => s.device)
+  const needsRepair = useDeviceStore((s) => s.needsRepair)
+  const visiblePairs = pairs.filter((p) => p.status !== 'revoked')
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   const accept = useCallback(async () => {
-    const trimmed = code.trim();
-    if (trimmed.length < 4 || busy) return;
-    setBusy(true);
-    setError(null);
+    const trimmed = code.trim()
+    if (trimmed.length < 4 || busy) return
+    setBusy(true)
+    setError(null)
     try {
-      await api.acceptPair(trimmed);
-      setCode("");
-      await refreshPairs();
+      await api.acceptPair(trimmed)
+      setCode('')
+      await refreshPairs()
     } catch (err) {
-      setError(String(err));
+      setError(String(err))
     } finally {
-      setBusy(false);
+      setBusy(false)
     }
-  }, [code, busy, refreshPairs]);
+  }, [code, busy, refreshPairs])
 
-  const acceptRef = useRef(accept);
+  const acceptRef = useRef(accept)
   useEffect(() => {
-    acceptRef.current = accept;
-  });
+    acceptRef.current = accept
+  })
 
   useEffect(() => {
-    if (code.length === 6) void acceptRef.current();
-  }, [code]);
+    if (code.length === 6) void acceptRef.current()
+  }, [code])
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <Screen>
         <FlatList
           data={visiblePairs}
@@ -53,8 +72,8 @@ export default function ReceiverPairing() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => {
-                setRefreshing(true);
-                void refreshPairs().finally(() => setRefreshing(false));
+                setRefreshing(true)
+                void refreshPairs().finally(() => setRefreshing(false))
               }}
               tintColor={colors.accentSoft}
             />
@@ -63,10 +82,13 @@ export default function ReceiverPairing() {
             <Card style={{ marginBottom: 6 }}>
               {needsRepair ? (
                 <Card style={{ borderColor: colors.red }}>
-                  <Title style={{ fontSize: 14, color: colors.red }}>Identity conflict</Title>
+                  <Title style={{ fontSize: 14, color: colors.red }}>
+                    Identity conflict
+                  </Title>
                   <Muted style={{ fontSize: 12 }}>
-                    This install's keys diverge from the server identity. Remove this
-                    device and re-pair before verified messaging resumes.
+                    This install&apos;s keys diverge from the server identity.
+                    Remove this device and re-pair before verified messaging
+                    resumes.
                   </Muted>
                 </Card>
               ) : null}
@@ -78,45 +100,73 @@ export default function ReceiverPairing() {
               </Muted>
               <Input
                 value={code}
-                onChangeText={(t) => setCode(t.replace(/\D/g, "").slice(0, 6))}
+                onChangeText={(t) => setCode(t.replace(/\D/g, '').slice(0, 6))}
                 placeholder="000000"
                 keyboardType="number-pad"
                 accessibilityLabel="Pairing code"
-                style={{ letterSpacing: 8, textAlign: "center", fontSize: 22, fontWeight: "700" }}
+                style={{
+                  letterSpacing: 8,
+                  textAlign: 'center',
+                  fontSize: 22,
+                  fontWeight: '700',
+                }}
               />
-              {error ? <Muted style={{ color: colors.red, fontSize: 12 }}>{error}</Muted> : null}
-              <Button label="Accept pairing" onPress={() => void accept()} busy={busy} disabled={code.length < 4} />
+              {error ? (
+                <Muted style={{ color: colors.red, fontSize: 12 }}>
+                  {error}
+                </Muted>
+              ) : null}
+              <Button
+                label="Accept pairing"
+                onPress={() => void accept()}
+                busy={busy}
+                disabled={code.length < 4}
+              />
               {code.length === 6 && !busy ? (
-                <Muted style={{ fontSize: 11 }}>Code complete — pairing automatically…</Muted>
+                <Muted style={{ fontSize: 11 }}>
+                  Code complete — pairing automatically…
+                </Muted>
               ) : null}
             </Card>
           }
           renderItem={({ item }) => (
             <Card>
-              <Row style={{ justifyContent: "space-between" }}>
+              <Row style={{ justifyContent: 'space-between' }}>
                 <Title style={{ fontSize: 15 }}>
                   {item.senderName ?? item.senderDeviceId}
                 </Title>
                 <StatusPill status={item.status} />
+                <PresencePill
+                  status={item.peerStatus}
+                  lastSeenAt={item.peerLastSeenAt}
+                />
               </Row>
               <Muted>
-                {item.status === "active"
+                {item.status === 'active'
                   ? "Receiving this sender's SMS, encrypted end-to-end."
-                  : item.status === "pending"
-                    ? "Waiting for you to accept — enter the code above."
-                    : "Revoked."}
+                  : item.status === 'pending'
+                    ? 'Waiting for you to accept — enter the code above.'
+                    : 'Revoked.'}
               </Muted>
-              {item.status === "active" ? (
-                <FingerprintConfirm pair={item} myDeviceId={device?.deviceId ?? ""} />
+              {item.status === 'active' ? (
+                <FingerprintConfirm
+                  pair={item}
+                  myDeviceId={device?.deviceId ?? ''}
+                />
               ) : null}
-              <Muted style={{ fontSize: 11 }}>{new Date(item.createdAt).toLocaleString()}</Muted>
+              <Muted style={{ fontSize: 11 }}>
+                {new Date(item.createdAt).toLocaleString()}
+              </Muted>
             </Card>
           )}
           ListEmptyComponent={
-            <Empty icon="🤝" text="No pairs yet. Enter the code from your sender device to pair." />
+            <Empty
+              icon="🤝"
+              text="No pairs yet. Enter the code from your sender device to pair."
+            />
           }
         />
       </Screen>
     </KeyboardAvoidingView>
-  );
+  )
 }

@@ -102,6 +102,13 @@ export interface PairDTO {
   roomId?: string;
   createdAt: string;
   acceptedAt?: string;
+  /**
+   * Live presence of the OTHER device in this pair (the peer), from this
+   * device's perspective. Updated in real time via `device:presence` and
+   * refreshed as a snapshot on every pair fetch.
+   */
+  peerStatus?: "online" | "offline";
+  peerLastSeenAt?: string;
 }
 
 export interface CreatePairResult extends PairDTO {
