@@ -1,9 +1,7 @@
 name: Android Release APK
 
 on:
-  workflow_dispatch:
   push:
-    branches: [release]
     tags:
       - 'v*.*.*'
 
@@ -29,7 +27,6 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Validate release tag
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -euo pipefail
           TAG="${{ github.ref_name }}"
@@ -51,7 +48,6 @@ jobs:
           cache: pnpm
 
       - name: Validate Android versionName
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -euo pipefail
           TAG="${{ github.ref_name }}"
@@ -117,7 +113,6 @@ jobs:
           ls -lh artifacts/SIMBridge.apk
 
       - name: Generate SHA-256
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           sha256sum artifacts/SIMBridge.apk \
             > artifacts/SIMBridge.apk.sha256
@@ -133,7 +128,6 @@ jobs:
           retention-days: 30
 
       - name: Confirm release tag before publishing
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -euo pipefail
           TAG="${{ github.ref_name }}"
@@ -144,7 +138,6 @@ jobs:
           echo "Publishing release for tag '$TAG'."
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
