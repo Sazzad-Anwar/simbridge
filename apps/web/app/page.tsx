@@ -18,6 +18,7 @@ import { PairingSection } from "@/sections/PairingSection";
 import { UseCasesSection } from "@/sections/UseCasesSection";
 import { AppPreviewSection } from "@/sections/AppPreviewSection";
 import { DownloadSection } from "@/sections/DownloadSection";
+import { InstallSection } from "@/sections/InstallSection";
 import { FinalCTA } from "@/sections/FinalCTA";
 
 export default function Page() {
@@ -41,6 +42,7 @@ export default function Page() {
         <UseCasesSection />
         <AppPreviewSection />
         <DownloadSection />
+        <InstallSection />
         <FAQ />
         <FinalCTA />
       </main>
