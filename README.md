@@ -57,7 +57,7 @@ Covers: registration → pairing → real-time delivery → E2E decrypt → acks
 | `MONGO_URI` | `mongodb://127.0.0.1:27017/simbridge` | **Local MongoDB** connection |
 | `JWT_SECRET` | dev value | Change in production |
 | `MESSAGE_TTL_DAYS` | `7` | MongoDB TTL auto-purge of old messages |
-| `PAIRING_CODE_TTL_MINUTES` | `10` | 6-digit pairing code lifetime |
+| `PAIRING_CODE_TTL_MINUTES` | `2` | 6-digit pairing code lifetime |
 | `PUSH_SERVICE_URL` | *(empty)* | Optional FCM/APNs relay for background pushes |
 
 ## Feature flow (implemented)
@@ -76,7 +76,7 @@ Covers: registration → pairing → real-time delivery → E2E decrypt → acks
 - **Device-bound keys** — mobile keys live in the Android Keystore via `expo-secure-store`; sender outbox plaintext never leaves the device.
 - **JWT auth** on every REST route (Bearer) and every Socket.IO handshake.
 - **Rate limiting** per IP+bucket.
-- **Audit logs** with 30-day TTL; **message TTL** auto-purge; pairing codes expire in 10 minutes.
+- **Audit logs** with 30-day TTL; **message TTL** auto-purge; pairing codes expire in 2 minutes.
 - **Validation** on every route body via TypeBox schemas + Swagger documentation.
 
 ## Mobile app

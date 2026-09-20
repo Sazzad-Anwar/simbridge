@@ -1,0 +1,31 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+group = 'app.simbridge.mobile'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.appinstaller"
+  compileSdkVersion safeExtGet("compileSdkVersion", 35)
+
+  defaultConfig {
+    minSdkVersion safeExtGet("minSdkVersion", 24)
+    targetSdkVersion safeExtGet("targetSdkVersion", 35)
+  }
+
+  buildTypes {
+    release {
+      minifyEnabled false
+    }
+  }
+}
+
+def safeExtGet(name, fallback) {
+  rootProject.ext.has(name) ? rootProject.ext.get(name) : fallback
+}
+
+dependencies {
+  implementation "com.facebook.react:react-native:+"
+  implementation project(':expo-modules-core')
+  implementation "androidx.core:core-ktx:1.13.1"
+}

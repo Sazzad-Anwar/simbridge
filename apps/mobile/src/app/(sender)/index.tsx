@@ -2,7 +2,7 @@
  * Sender — Pairing Management (step 3): create a pairing request, share the
  * 6-digit code, manage active pairs.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Alert,
   FlatList,
@@ -49,6 +49,7 @@ export default function SenderPairing() {
   const [busy, setBusy] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [lastRequest, setLastRequest] = useState<CreatePairResult | null>(null)
+  const lastRequestTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const effectiveReceiverId = scannedReceiverId ?? receiverId
   const visiblePairs = pairs.filter((p) => p.status !== 'revoked')
 
@@ -62,19 +63,32 @@ export default function SenderPairing() {
     void refreshPairs()
   }, [refreshPairs])
 
+  // Clear the pending-timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (lastRequestTimer.current) clearTimeout(lastRequestTimer.current)
+    }
+  }, [])
+
   const createPair = async () => {
     const id = effectiveReceiverId.trim()
     if (!id) return
     setBusy(true)
     try {
       const result = await api.createPair({ receiverDeviceId: id })
+      if (lastRequestTimer.current) clearTimeout(lastRequestTimer.current)
       setLastRequest(result)
+      // Hide the QR + code card once the code stops being valid (2 min).
+      lastRequestTimer.current = setTimeout(() => {
+        setLastRequest(null)
+        lastRequestTimer.current = null
+      }, 2 * 60_000)
       setReceiverId('')
       setScannedReceiverId(null)
       await refreshPairs()
       Alert.alert(
         'Pairing requested',
-        `Give this code to the receiver:\n\n${result.code}\n\nValid for 10 minutes.`,
+        `Give this code to the receiver:\n\n${result.code}\n\nValid for 2 minutes.`,
       )
     } catch (err) {
       Alert.alert('Pairing failed', String(err))

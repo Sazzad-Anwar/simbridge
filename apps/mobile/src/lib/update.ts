@@ -15,6 +15,7 @@
  * case the release is no longer newer than what is installed).
  */
 import Constants from "expo-constants";
+import * as FileSystem from "expo-file-system/legacy";
 import { storage } from "@/lib/storage";
 
 const LATEST_RELEASE_URL =
@@ -24,6 +25,8 @@ export interface AppUpdate {
   tagName: string;
   version: string;
   downloadUrl: string;
+  /** Release `.sha256` asset URL (best-effort checksum verification). */
+  sha256Url?: string;
 }
 
 /** True when `a` is a higher semver than `b` (optional leading "v" tolerated). */
@@ -65,12 +68,13 @@ export async function checkForAppUpdate(): Promise<AppUpdate | null> {
       };
       const tagName = release.tag_name;
       const asset = release.assets?.find((a) => a.browser_download_url?.endsWith(".apk"));
+      const sha256Asset = release.assets?.find((a) => a.browser_download_url?.endsWith(".sha256"));
       const downloadUrl = asset?.browser_download_url;
       if (!tagName || !downloadUrl) return null;
       const version = tagName.replace(/^v/i, "");
       if (!semverGt(version, installedVersion())) return null;
       if (await wasOfferedForInstalledBuild(tagName)) return null;
-      return { tagName, version, downloadUrl };
+      return { tagName, version, downloadUrl, sha256Url: sha256Asset?.browser_download_url };
     } finally {
       clearTimeout(timer);
     }
@@ -93,4 +97,73 @@ export async function markAppUpdateOffered(update: AppUpdate): Promise<void> {
 async function wasOfferedForInstalledBuild(tagName: string): Promise<boolean> {
   const offered = await storage.getLastUpdatePrompt();
   return offered?.tagName === tagName && offered.installedVersion === installedVersion();
+}
+
+/**
+ * Fetches the expected SHA-256 hex digest from a release `.sha256` asset
+ * (the `SIMBridge.apk.sha256` file our pipeline uploads). Returns null on any
+ * failure so verification is skipped rather than forced.
+ */
+export async function fetchExpectedSha256(sha256Url: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(sha256Url, { signal: controller.signal });
+      if (!res.ok) return null;
+      const text = await res.text();
+      return text.trim().match(/^([0-9a-fA-F]{64})/)?.[1] ?? null;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+
+export interface AppUpdateDownload {
+  /** Resolves to the local APK path once the download completes. */
+  complete: Promise<string>;
+  /** Cancels an in-flight download (fires the progress callback's failure). */
+  cancel: () => Promise<void>;
+}
+
+/**
+ * Downloads the update's APK into the app cache with a 0..100 progress
+ * callback. Local path is stable per version so re-downloads overwrite.
+ */
+export function startAppUpdateDownload(
+  update: AppUpdate,
+  onProgress: (percent: number) => void,
+): AppUpdateDownload {
+  if (!FileSystem.cacheDirectory) throw new Error("No cache directory available");
+  const path = `${FileSystem.cacheDirectory}simbridge-${update.version}.apk`;
+
+  const download = FileSystem.createDownloadResumable(
+    update.downloadUrl,
+    path,
+    {},
+    ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
+      const pct =
+        totalBytesExpectedToWrite > 0
+          ? Math.min(100, Math.round((totalBytesWritten / totalBytesExpectedToWrite) * 100))
+          : 0;
+      onProgress(pct);
+    },
+  );
+
+  const complete = download.downloadAsync().then((result) => {
+    if (!result?.uri) throw new Error("Download failed to write file");
+    return result.uri;
+  });
+
+  const cancel = async () => {
+    try {
+      await download.cancelAsync();
+    } catch {
+      // already finished
+    }
+  };
+
+  return { complete, cancel };
 }
