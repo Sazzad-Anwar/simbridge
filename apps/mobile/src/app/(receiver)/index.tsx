@@ -14,6 +14,7 @@ const FILTERS = ["all", "delivered", "sent"] as const;
 export default function Inbox() {
   const inbox = useMessageStore((s) => s.inbox);
   const syncAll = useMessageStore((s) => s.syncAll);
+  const vaultError = useMessageStore((s) => s.vaultError);
   const device = useDeviceStore((s) => s.device);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
@@ -48,6 +49,12 @@ export default function Inbox() {
         }
         ListHeaderComponent={
           <Card style={{ marginBottom: 6, gap: 12 }}>
+            {vaultError ? (
+              <Card style={{ borderColor: colors.red, gap: 4 }}>
+                <Title style={{ fontSize: 14, color: colors.red }}>Local vault unavailable</Title>
+                <Muted style={{ fontSize: 12 }}>{vaultError}</Muted>
+              </Card>
+            ) : null}
             <Row style={{ justifyContent: "space-between" }}>
               <Title>Inbox</Title>
               <Muted>{inbox.length} messages</Muted>

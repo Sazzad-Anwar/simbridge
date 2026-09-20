@@ -1,10 +1,28 @@
 /**
  * Local persistence layer.
- *  - Keystore-grade secrets (identity keys, apiKey, token) -> expo-secure-store
- *  - Regular state (settings, outbox, message cache, lastSeq cursors) -> AsyncStorage
+ *  - Keystore-grade secrets (identity keys, vault key, apiKey, token) -> expo-secure-store
+ *  - Sensitive state (outbox with plaintext SMS bodies, message cache) -> AsyncStorage,
+ *    sealed with the device-local vault key (secretbox) so data is encrypted at rest.
+ *  - Non-sensitive state (settings, cursors, routing, watermark) -> plain AsyncStorage.
+ *
+ * Vault semantics (enforced in Phase 4):
+ *  - A missing vault key is NEVER silently regenerated and sealed data is NEVER
+ *    deleted — callers must surface VAULT_KEY_MISSING and keep the data for recovery.
+ *  - Pre-vault plaintext collections are still readable (migration) and are
+ *    re-sealed on the next write.
+ *  - Unrecoverable sealed data throws LOCAL_STORAGE_RECOVERY_REQUIRED; the blob
+ *    is preserved untouched.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
+import {
+  bytesToUtf8,
+  decryptLocal,
+  encryptLocal,
+  localStorageRecoveryRequiredError,
+  utf8ToBytes,
+  vaultKeyMissingError,
+} from "@simbridge/crypto";
 
 const SECURE_KEYS = {
   secretKey: "simbridge.identity.secretKey",
@@ -21,8 +39,8 @@ const SECURE_KEYS = {
 const STORE_KEYS = {
   serverUrl: "simbridge.serverUrl.v1",
   profile: "simbridge.profile.v1", // { name, role }
-  outbox: "simbridge.outbox.v1", // EncryptedOutboxEntry[]
-  messages: "simbridge.messages.v1", // MessageDTO[] cache (receiver inbox)
+  outbox: "simbridge.outbox.v1", // vault-sealed OutboxEntry[] (plaintext SMS bodies at rest)
+  messages: "simbridge.messages.v1", // vault-sealed MessageDTO[] cache (receiver inbox)
   lastSeq: "simbridge.lastSeq.v1", // Record<pairId, number>
   routing: "simbridge.routing.v1", // Record<receiverNumber, subscriptionId>
   smsWatermark: "simbridge.smsWatermark.v1", // last processed inbox-scan timestamp
@@ -78,7 +96,7 @@ export const secrets = {
   },
 };
 
-// ---- Regular JSON storage ----
+// ---- Regular JSON storage ---- (non-sensitive: settings, cursors, routing)
 async function getJSON<T>(key: string, fallback: T): Promise<T> {
   try {
     const raw = await AsyncStorage.getItem(key);
@@ -92,14 +110,61 @@ async function setJSON(key: string, value: unknown): Promise<void> {
   await AsyncStorage.setItem(key, JSON.stringify(value));
 }
 
+// ---- At-rest vault storage ---- (sensitive: outbox + message cache)
+
+/**
+ * Prefix distinguishing vault-sealed blobs from pre-vault (legacy) plaintext.
+ * Sealed shape: `sbv1:` + base64( nonce ‖ secretbox(utf8(JSON)) ).
+ */
+const VAULT_PREF_PREFIX = "sbv1:";
+
+async function readVaulted<T>(key: string, fallback: T): Promise<T> {
+  const raw = await AsyncStorage.getItem(key);
+  if (!raw) return fallback;
+
+  if (!raw.startsWith(VAULT_PREF_PREFIX)) {
+    // Legacy pre-vault plaintext: readable now so existing data keeps working;
+    // the next write migrates it to the sealed format.
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      throw localStorageRecoveryRequiredError();
+    }
+  }
+
+  const vaultKey = await secrets.get("vaultKey");
+  if (!vaultKey) throw vaultKeyMissingError();
+
+  let bytes: Uint8Array;
+  try {
+    bytes = decryptLocal(vaultKey, raw.slice(VAULT_PREF_PREFIX.length));
+  } catch {
+    // Key present but the blob will not decrypt — preserve it for recovery.
+    throw localStorageRecoveryRequiredError();
+  }
+  try {
+    return JSON.parse(bytesToUtf8(bytes)) as T;
+  } catch {
+    throw localStorageRecoveryRequiredError();
+  }
+}
+
+async function writeVaulted<T>(key: string, value: T): Promise<void> {
+  const vaultKey = await secrets.get("vaultKey");
+  if (!vaultKey) throw vaultKeyMissingError();
+  const sealed =
+    VAULT_PREF_PREFIX + encryptLocal(vaultKey, utf8ToBytes(JSON.stringify(value)));
+  await AsyncStorage.setItem(key, sealed);
+}
+
 export const storage = {
   getServerUrl: () => AsyncStorage.getItem(STORE_KEYS.serverUrl),
   setServerUrl: (url: string) => AsyncStorage.setItem(STORE_KEYS.serverUrl, url),
   getProfile: () => getJSON<StoredProfile | null>(STORE_KEYS.profile, null),
   setProfile: (p: StoredProfile) => setJSON(STORE_KEYS.profile, p),
 
-  getOutbox: () => getJSON<OutboxEntry[]>(STORE_KEYS.outbox, []),
-  setOutbox: (entries: OutboxEntry[]) => setJSON(STORE_KEYS.outbox, entries),
+  getOutbox: () => readVaulted<OutboxEntry[]>(STORE_KEYS.outbox, []),
+  setOutbox: (entries: OutboxEntry[]) => writeVaulted(STORE_KEYS.outbox, entries),
   updateOutboxEntry: async (clientMsgId: string, patch: Partial<OutboxEntry>) => {
     const all = await storage.getOutbox();
     const next = all.map((e) => (e.clientMsgId === clientMsgId ? { ...e, ...patch } : e));
@@ -107,8 +172,8 @@ export const storage = {
     return next;
   },
 
-  getMessageCache: () => getJSON<import("@simbridge/shared").MessageDTO[]>(STORE_KEYS.messages, []),
-  setMessageCache: (m: import("@simbridge/shared").MessageDTO[]) => setJSON(STORE_KEYS.messages, m),
+  getMessageCache: () => readVaulted<import("@simbridge/shared").MessageDTO[]>(STORE_KEYS.messages, []),
+  setMessageCache: (m: import("@simbridge/shared").MessageDTO[]) => writeVaulted(STORE_KEYS.messages, m),
 
   getLastSeq: () => getJSON<Record<string, number>>(STORE_KEYS.lastSeq, {}),
   setLastSeqMap: (m: Record<string, number>) => setJSON(STORE_KEYS.lastSeq, m),

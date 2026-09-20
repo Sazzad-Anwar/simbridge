@@ -11,6 +11,7 @@ import { DeviceIdentity } from "@/components/DeviceIdentity";
 import { FingerprintConfirm } from "@/components/FingerprintConfirm";
 import { colors } from "@/constants/theme";
 import { useDeviceStore } from "@/stores/device-store";
+import { useMessageStore } from "@/stores/message-store";
 import { useScanStore } from "@/lib/scan-store";
 import { pairingQrPayload } from "@/lib/qr";
 import { api } from "@/lib/api";
@@ -22,6 +23,7 @@ export default function SenderPairing() {
   const connection = useDeviceStore((s) => s.connection);
   const device = useDeviceStore((s) => s.device);
   const needsRepair = useDeviceStore((s) => s.needsRepair);
+  const vaultError = useMessageStore((s) => s.vaultError);
   const scannedReceiverId = useScanStore((s) => s.receiverDeviceId);
   const setScannedReceiverId = useScanStore((s) => s.setReceiverDeviceId);
   const [receiverId, setReceiverId] = useState("");
@@ -93,6 +95,13 @@ export default function SenderPairing() {
                   This install's keys diverge from the server identity. Reinstall or
                   remove this device and re-pair before verified messaging resumes.
                 </Muted>
+              </Card>
+            ) : null}
+
+            {vaultError ? (
+              <Card style={{ borderColor: colors.red }}>
+                <Title style={{ fontSize: 14, color: colors.red }}>Local vault unavailable</Title>
+                <Muted style={{ fontSize: 12 }}>{vaultError}</Muted>
               </Card>
             ) : null}
 

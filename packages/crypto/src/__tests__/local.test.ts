@@ -35,6 +35,23 @@ describe("local at-rest vault", () => {
     }
   });
 
+  it("fails closed on a truncated/corrupt sealed blob", () => {
+    const key = generateVaultKey();
+    const sealed = encryptLocal(key, utf8ToBytes("secret"));
+    try {
+      decryptLocal(key, sealed.slice(0, 8) + "AAAA");
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect((e as CryptoError).code).toBe("DECRYPTION_FAILED");
+    }
+    try {
+      decryptLocal(key, "AAAA");
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect((e as CryptoError).code).toBe("DECRYPTION_FAILED");
+    }
+  });
+
   it("generates keys of the correct length", () => {
     expect(VAULT_KEY_LENGTH).toBe(32);
     expect(generateVaultKey().length).toBeGreaterThan(40);

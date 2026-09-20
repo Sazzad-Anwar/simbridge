@@ -19,6 +19,7 @@ import { canUseV1, iConfirmedPeer, isV1Pair, peerIdentity } from '@simbridge/sha
 import '../lib/random-polyfill'
 import {
   bytesToBase64,
+  CryptoError,
   decrypt,
   decryptEnvelopeV1,
   encrypt,
@@ -69,10 +70,29 @@ export interface InboxEntry extends MessageDTO {
   decryptError?: "no-key" | "failed" | "unverified"
 }
 
+/** True when `err` is one of the at-rest vault error codes. */
+function isVaultError(err: unknown): boolean {
+  return (
+    err instanceof CryptoError &&
+    (err.code === "VAULT_KEY_MISSING" || err.code === "LOCAL_STORAGE_RECOVERY_REQUIRED")
+  )
+}
+
+function vaultMessage(err: CryptoError): string {
+  return err.code === "VAULT_KEY_MISSING"
+    ? "This device's local vault key is missing while encrypted offline data exists. Nothing has been deleted — messaging is paused until recovery."
+    : "Local encrypted data on this device could not be decrypted. It is preserved untouched; messaging is paused until recovery."
+}
+
 interface MessageState {
   outbox: OutboxEntry[]
   inbox: InboxEntry[]
   lastSeq: Record<string, number>
+  /**
+   * Set when the at-rest vault is unavailable (key missing or data corrupt).
+   * Messaging is paused to preserve the sealed data for recovery.
+   */
+  vaultError: string | null
 
   loadLocal: () => Promise<void>
 
@@ -218,14 +238,25 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   outbox: [],
   inbox: [],
   lastSeq: {},
+  vaultError: null,
 
   async loadLocal() {
-    const [outbox, inbox, lastSeq] = await Promise.all([
-      storage.getOutbox(),
-      storage.getMessageCache(),
-      storage.getLastSeq(),
-    ])
-    set({ outbox, inbox, lastSeq })
+    try {
+      const [outbox, inbox, lastSeq] = await Promise.all([
+        storage.getOutbox(),
+        storage.getMessageCache(),
+        storage.getLastSeq(),
+      ])
+      set({ outbox, inbox, lastSeq, vaultError: null })
+    } catch (err) {
+      // Vault unavailable: surface it, do NOT regenerate the key or delete the
+      // sealed data (those are user-directed recovery actions).
+      if (isVaultError(err)) {
+        set({ outbox: [], inbox: [], vaultError: vaultMessage(err as CryptoError) })
+        return
+      }
+      throw err
+    }
   },
 
   async enqueueSms({
@@ -237,6 +268,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     sim,
     clientMsgId = '',
   }) {
+    // Vault down: allow the throw so callers (native drain/reconcile) abort and
+    // keep their entries — nothing is silently dropped or overwritten.
     const id =
       clientMsgId ||
       smsClientMsgId({
@@ -285,6 +318,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   async flushOutbox() {
+    if (get().vaultError) return
     const outbox = await storage.getOutbox()
     const retryable = outbox.filter(
       (e) => e.status === 'pending' || e.status === 'failed',
@@ -312,6 +346,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
   async drainNativeOutbox() {
     return serializeRecovery(async () => {
+      if (get().vaultError) return // native entries stay on disk until recovery
       const { smsBridge } = await import('../native/sms-bridge')
       const native = smsBridge.getOutbox()
       if (native.length === 0) return
@@ -402,6 +437,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
   async reconcileInbox() {
     return serializeRecovery(async () => {
+      if (get().vaultError) return // watermark stays put until recovery
       const { smsBridge } = await import('../native/sms-bridge')
       let after = await storage.getSmsWatermark()
       if (after == null) {
@@ -510,6 +546,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   async syncAll() {
+    if (get().vaultError) return
     const { pairs, profile } = useDeviceStore.getState()
     const role = profile?.role
     const active = pairs.filter((p) => p.status === 'active')
@@ -575,7 +612,14 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     inbox.sort((a, b) => b.seq - a.seq)
     const trimmed = inbox.slice(0, 500)
     set({ inbox: trimmed, lastSeq })
-    if (changed) await storage.setMessageCache(trimmed)
+    if (changed) {
+      // Persist only the DTO (payload ciphertext) — never the derived in-memory
+      // `decrypted`/`decryptError` fields (plaintext must stay out of the cache).
+      const cacheOnly: import('@simbridge/shared').MessageDTO[] = trimmed.map(
+        ({ decrypted, decryptError, ...m }) => m,
+      )
+      await storage.setMessageCache(cacheOnly)
+    }
     await storage.setLastSeqMap(lastSeq)
   },
 
@@ -676,7 +720,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         ...get().inbox.filter((m) => m.messageId !== msg.messageId),
       ]
       set({ inbox })
-      void storage.setMessageCache(inbox.slice(0, 500))
+      void storage.setMessageCache(inbox.slice(0, 500)).catch(() => undefined)
       void storage.setLastSeqFor(msg.pairId, msg.seq)
       void notify('New message', 'You received an encrypted message')
       // Receiver acknowledges instantly (step 6).
@@ -685,14 +729,18 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     socket.on('message:delivered', ({ messageId }) => {
       void (async () => {
-        const outbox = await storage.getOutbox()
-        const next = outbox.map((e) =>
-          e.messageId === messageId
-            ? { ...e, status: 'delivered' as const }
-            : e,
-        )
-        await storage.setOutbox(next)
-        set({ outbox: next })
+        try {
+          const outbox = await storage.getOutbox()
+          const next = outbox.map((e) =>
+            e.messageId === messageId
+              ? { ...e, status: 'delivered' as const }
+              : e,
+          )
+          await storage.setOutbox(next)
+          set({ outbox: next })
+        } catch {
+          /* vault paused — delivery status lost from cache, harmless */
+        }
       })()
     })
 
@@ -703,10 +751,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           await get().syncAll()
         } else {
           // Sender: mirror delivery statuses for this pair from the backend.
-          const res = await api.sync(pairId, 0).catch(() => null)
-          if (!res) return
+          const src = await api.sync(pairId, 0).catch(() => null)
+          if (!src) return
           const statusById = new Map(
-            res.messages.map((m) => [m.messageId, m.status] as const),
+            src.messages.map((m) => [m.messageId, m.status] as const),
           )
           const outbox = await storage.getOutbox()
           let dirty = false
@@ -721,8 +769,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             }
           }
           if (dirty) {
-            await storage.setOutbox(outbox)
-            set({ outbox: [...outbox] })
+            try {
+              await storage.setOutbox(outbox)
+              set({ outbox: [...outbox] })
+            } catch {
+              /* vault paused — apply in-memory only next time */
+            }
           }
         }
       })()

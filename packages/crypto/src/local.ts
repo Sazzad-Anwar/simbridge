@@ -46,6 +46,9 @@ export function decryptLocal(vaultKeyB64: string, sealedB64: string): Uint8Array
     throw cryptoError("INVALID_ENVELOPE", "Invalid vault key");
   }
   const packed = base64ToBytes(sealedB64);
+  if (packed.length < nacl.secretbox.nonceLength + nacl.secretbox.overheadLength) {
+    throw cryptoError("DECRYPTION_FAILED", "Vault payload is too short to decrypt");
+  }
   const nonce = packed.subarray(0, nacl.secretbox.nonceLength);
   const sealed = packed.subarray(nacl.secretbox.nonceLength);
   const opened = nacl.secretbox.open(sealed, nonce, key);
