@@ -14,14 +14,19 @@ export default function MessageDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const entry = useMessageStore((s) => s.inbox.find((m) => m.messageId === id));
   const decryptEntry = useMessageStore((s) => s.decryptEntry);
+  const clearDecryptError = useMessageStore((s) => s.clearDecryptError);
   const [copied, setCopied] = useState(false);
   const text = entry?.decrypted;
 
   useEffect(() => {
-    if (entry && !entry.decrypted) {
+    if (entry && entry.decrypted === undefined && !entry.decryptError) {
       void decryptEntry(entry);
     }
   }, [entry, decryptEntry]);
+
+  const retry = () => {
+    if (entry) clearDecryptError(entry.messageId);
+  };
 
   if (!entry) {
     return (
@@ -60,6 +65,20 @@ export default function MessageDetail() {
           ) : null}
           {text ? (
           <Text style={{ color: colors.text, fontSize: 16, lineHeight: 24 }}>{text}</Text>
+        ) : entry.decryptError ? (
+          <Card style={{ borderColor: colors.red, gap: 8 }}>
+            <Text style={{ color: colors.text, fontSize: 16, lineHeight: 24, fontWeight: "600" }}>
+              {entry.decryptError === "no-key"
+                ? "No decryption key on this device"
+                : "Couldn't decrypt this message"}
+            </Text>
+            <Muted style={{ fontSize: 13 }}>
+              {entry.decryptError === "no-key"
+                ? "This device has no private key stored, so the message can't be decrypted locally. Finish setup and try again."
+                : "The message was encrypted with a key this device no longer has (for example, it was sent before this account last re-registered its key). Retry after the paired sender refreshes may help."}
+            </Muted>
+            <Button label="Retry decrypt" onPress={retry} />
+          </Card>
         ) : (
           <Spinner />
         )}
