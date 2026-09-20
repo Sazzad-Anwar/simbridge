@@ -2,14 +2,14 @@
   "expo": {
     "name": "SIMBridge",
     "slug": "simbridge",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "simbridge",
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "app.simbridge.mobile",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#1B1B30",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
